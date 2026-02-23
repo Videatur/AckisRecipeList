@@ -37,6 +37,42 @@ addon.name = private.addon_display_name or private.addon_name
 
 local L = LibStub("AceLocale-3.0"):GetLocale(private.addon_name)
 local Dialog = LibStub("LibDialog-1.0")
+local ldb = LibStub("LibDataBroker-1.1")
+local ldbi = LibStub("LibDBIcon-1.0")
+
+local dataBroker = ldb:NewDataObject("AckisRecipeList", {
+    type = "launcher",
+    label = "Ackis Recipe List",
+    icon = [[Interface\Icons\INV_Misc_Book_11]],
+    tocname = "AckisRecipeList",
+})
+
+function dataBroker.OnClick(_, button)
+    if button == "LeftButton" then
+        if addon.Frame and addon.Frame:IsVisible() then
+            addon.Frame:Hide()
+        else
+            if private.InitializeFrame then private.InitializeFrame() end
+            if addon.EnsureProfessionOpenAndScan then
+                addon:EnsureProfessionOpenAndScan()
+            else
+                addon:Scan(false, false)
+            end
+        end
+    elseif button == "RightButton" then
+        local ACD = LibStub and LibStub("AceConfigDialog-3.0", true)
+        if ACD and ACD.Open then
+            ACD:Open(private.addon_name)
+            if ACD.SelectGroup then ACD:SelectGroup(private.addon_name, "general") end
+        end
+    end
+end
+
+function dataBroker.OnTooltipShow(tt)
+    tt:AddLine(private.addon_display_name or private.addon_name)
+    tt:AddLine("Left-click: Toggle GUI", 0.2, 1, 0.2)
+    tt:AddLine("Right-click: Options", 0.2, 1, 0.2)
+end
 
 local wow_version, wow_build_num, wow_date, wow_ui_version = private.GetBuildInfo()
 private.wow_version = wow_version
@@ -677,75 +713,8 @@ function addon:OnInitialize()
         end
     end
 
-    -- Minimap button: native implementation (no external libs)
-    if not self.minimapButton then
-        local btn = _G.CreateFrame("Button", "ARL_MinimapButton", _G.Minimap)
-        btn:SetSize(31, 31)
-        btn:SetFrameStrata("MEDIUM")
-        btn:SetFrameLevel((_G.Minimap and _G.Minimap:GetFrameLevel() or 0) + 8)
-        btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-
-        -- Border overlay (matches Blizzard tracking button style)
-        local border = btn:CreateTexture(nil, "OVERLAY")
-        border:SetTexture([[Interface\Minimap\MiniMap-TrackingBorder]])
-        border:SetSize(54, 54)
-        border:SetPoint("TOPLEFT", btn, "TOPLEFT")
-
-        -- Icon cropped to fit round mask and centered
-        local icon = btn:CreateTexture(nil, "BACKGROUND")
-        icon:SetTexture([[Interface\Icons\INV_Misc_Book_11]])
-        icon:SetTexCoord(0.1, 0.9, 0.1, 0.9)
-        icon:SetSize(20, 20)
-        icon:SetPoint("CENTER", btn, "CENTER", 0, 0)
-
-        -- Hover highlight
-        local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
-        highlight:SetTexture([[Interface\Minimap\UI-Minimap-ZoomButton-Highlight]])
-        highlight:SetBlendMode("ADD")
-        highlight:SetAllPoints(btn)
-
-        btn:SetPoint("TOPLEFT", _G.Minimap, "TOPLEFT", 5, -5)
-        btn:SetScript("OnClick", function(_, mouseButton)
-            if mouseButton == "LeftButton" then
-                if addon.Frame and addon.Frame:IsVisible() then
-                    addon.Frame:Hide()
-                else
-                    if private.InitializeFrame then private.InitializeFrame() end
-                    if addon.EnsureProfessionOpenAndScan then
-                        addon:EnsureProfessionOpenAndScan()
-                    else
-                        addon:Scan(false,
-                            false)
-                    end
-                end
-            elseif mouseButton == "RightButton" then
-                local ACD = LibStub and LibStub("AceConfigDialog-3.0", true)
-                if ACD and ACD.Open then
-                    ACD:Open(private.addon_name)
-                    if ACD.SelectGroup then ACD:SelectGroup(private.addon_name, "general") end
-                else
-                    OpenOptions(addon.optionsFrame)
-                end
-            end
-        end)
-        btn:SetScript("OnEnter", function(self)
-            local tt = _G.GameTooltip
-            _G.GameTooltip_SetDefaultAnchor(tt, self)
-            tt:SetText(private.addon_display_name or private.addon_name)
-            tt:AddLine("Left-click: Toggle GUI")
-            tt:AddLine("Right-click: Options")
-            tt:Show()
-        end)
-        btn:SetScript("OnLeave", _G.GameTooltip_Hide)
-
-        self.minimapButton = btn
-    end
-    local hide = self.db.profile.minimapIcon and self.db.profile.minimapIcon.hide
-    if hide then
-        self.minimapButton:Hide()
-    else
-        self.minimapButton:Show()
-    end
+    -- LibDBIcon minimap button setup
+    ldbi:Register("AckisRecipeList", dataBroker, self.db.profile.minimapIcon)
 
     private.db = self.db
 
@@ -878,10 +847,7 @@ function addon:OnInitialize()
 end
 
 function addon:UpdateMinimapIcon()
-    local hide = self.db and self.db.profile and self.db.profile.minimapIcon and self.db.profile.minimapIcon.hide
-    if self.minimapButton then
-        if hide then self.minimapButton:Hide() else self.minimapButton:Show() end
-    end
+    ldbi:Refresh("AckisRecipeList", self.db and self.db.profile and self.db.profile.minimapIcon)
 end
 
 -- Function run when the addon is enabled.  Registers events and pre-loads certain variables.

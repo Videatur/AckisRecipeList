@@ -24,4 +24,8 @@
     <!-- Other Libraries -->
     <Include file="libs\LibSharedMedia-3.0\lib.xml"/>
     <Include file="libs\LibDialog-1.0\lib.xml"/>
+
+    <!-- LibDBIcon-1.0 (minimap button) - requires LibDataBroker -->
+    <Script file="libs\LibDBIcon-1.0\LibDataBroker-1.1\LibDataBroker-1.1.lua"/>
+    <Script file="libs\LibDBIcon-1.0\LibDBIcon-1.0\LibDBIcon-1.0.lua"/>
 </Ui>
