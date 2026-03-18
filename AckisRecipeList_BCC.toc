@@ -1,6 +1,6 @@
 ## Interface: 20505, 11508
 ## Title: Ackis Recipe List Classic
-## Version: 10.1.7
+## Version: 10.1.8
 ## Author: Videatur
 ## SavedVariables: ARLDB2
 ## DefaultState: Enabled
