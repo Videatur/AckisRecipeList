@@ -1,12 +1,25 @@
-## Interface: 11508, 20505, 50503
+## Interface: 11508, 20505, 50503, 50504
 ## Title: Ackis Recipe List Classic
-## Version: 10.2.1
+## Version: 10.2.2
 ## Author: Videatur
 ## SavedVariables: ARLDB2
 ## DefaultState: Enabled
 ## OptionalDeps: LibSharedMedia-3.0, HereBeDragons, TomTom
 ## X-Localizations: enUS, frFR, zhCN, deDE, itIT, esES, ruRU, ptBR
 ## X-Credits: Original authors: Ackis, Torhal, Ressy; Zhinjio, FGWarmonger, Kagaro, Speeddymon, Xinhuan, Aesir, BWMerlin, everyone who translated stuff and more!
+
+# Localization of Profession Category
+## Category: Professions
+## Category-deDE: Berufe
+## Category-esES: Profesiones
+## Category-esMX: Profesiones
+## Category-frFR: Métiers
+## Category-itIT: Professioni
+## Category-koKR: 전문 기술
+## Category-ptBR: Profissões
+## Category-ruRU: Профессии
+## Category-zhCN: 专业
+## Category-zhTW: 專業技能
 
 
 # Localization of Notes
