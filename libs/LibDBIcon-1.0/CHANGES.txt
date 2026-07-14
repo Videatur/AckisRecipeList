@@ -1,8 +1,8 @@
 ------------------------------------------------------------------------
-r155 | funkehdude | 2026-02-18 16:35:18 +0000 (Wed, 18 Feb 2026) | 1 line
+r159 | funkehdude | 2026-06-28 00:13:20 +0000 (Sun, 28 Jun 2026) | 1 line
 Changed paths:
-   M /trunk/LibDBIcon-1.0/LibDBIcon-1.0.lua
+   M /trunk/LibDBIcon-1.0.toc
 
-Add various new API calls for customizing the look of minimap icons
+Bump toc
 ------------------------------------------------------------------------
 
