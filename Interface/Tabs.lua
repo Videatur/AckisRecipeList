@@ -475,13 +475,16 @@ local function InitializeLocationTab()
 
                                 for identifier in pairs(acquireData) do
                                     local entity = acquireType:GetEntity(identifier)
-                                    local entityFaction = entity.faction
 
-                                    if not location or entity.Location == location then
-                                        if not entityFaction or entityFaction == private.Player.faction or entityFaction == "Neutral" then
-                                            alignedCount = alignedCount + 1
-                                        else
-                                            opposingCount = opposingCount + 1
+                                    if entity then
+                                        local entityFaction = entity.faction
+
+                                        if not location or entity.Location == location then
+                                            if not entityFaction or entityFaction == private.Player.faction or entityFaction == "Neutral" then
+                                                alignedCount = alignedCount + 1
+                                            else
+                                                opposingCount = opposingCount + 1
+                                            end
                                         end
                                     end
                                 end
@@ -596,12 +599,13 @@ local function InitializeLocationTab()
 				for sourceID, sourceData in pairs(acquireData) do
 					local hideAcquireType
 					local shouldExecute
+					local sourceEntity = acquireType:GetEntity(sourceID)
 
 					if (acquireType == private.AcquireTypes.Trainer or acquireType == private.AcquireTypes.Vendor or acquireType == private.AcquireTypes.MobDrop or acquireType == private.AcquireTypes.Mixed or acquireType == private.AcquireTypes.Quest)
-							and acquireType:GetEntity(sourceID).Location == location then
+							and sourceEntity and sourceEntity.Location == location then
 						shouldExecute = true
 					elseif (acquireType == private.AcquireTypes.WorldEvent or acquireType == private.AcquireTypes.Custom or acquireType == private.AcquireTypes.Discovery)
-							and acquireType:GetEntity(sourceID).Location == location then
+							and sourceEntity and sourceEntity.Location == location then
 						hideAcquireType = true
 						shouldExecute = true
 					elseif acquireType == private.AcquireTypes.Reputation then

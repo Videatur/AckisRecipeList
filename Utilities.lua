@@ -291,7 +291,7 @@ end
 -- ============================================================================
 
 local function GetEffectiveExpansionID()
-    return tonumber(_G.GetBuildInfo():sub(1, 1))
+    return tonumber(_G.GetBuildInfo():match("^(%d+)"))
 end
 private.GetEffectiveExpansionID = GetEffectiveExpansionID
 

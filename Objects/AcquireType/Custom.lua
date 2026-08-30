@@ -34,13 +34,25 @@ private.RegisterAcquireType({
 	-- Methods.
 	-- ----------------------------------------------------------------------------
 	_func_expand_list_entry = function(self, entry_index, entry_type, parent_entry, identifier, info, recipe, hide_location, hide_type)
+		local entity = self:GetEntity(identifier)
+
+		if not entity then
+			return entry_index
+		end
+
 		local entry = private.CreateListEntry(entry_type, parent_entry, recipe)
-		entry:SetText(self.EntryPadding .. private.SetTextColor(self:ColorData().hex, self:GetEntity(identifier).name))
+		entry:SetText(self.EntryPadding .. private.SetTextColor(self:ColorData().hex, entity.name))
 
 		return private.list_frame:InsertEntry(entry, entry_index, true)
 	end,
 	_func_insert_tooltip_text = function(self, recipe, identifier, localizedLocationName, acquire_info, addline_func)
-		addline_func(0, -1, false, self:GetEntity(identifier).name, self:ColorData())
+		local entity = self:GetEntity(identifier)
+
+		if not entity then
+			return
+		end
+
+		addline_func(0, -1, false, entity.name, self:ColorData())
 	end,
 	_func_waypoint_target = function(self, id_num, recipe)
 		local profile = private.db.profile

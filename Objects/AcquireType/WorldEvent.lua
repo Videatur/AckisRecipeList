@@ -22,6 +22,11 @@ private.RegisterAcquireType({
 	_func_expand_list_entry = function(self, entry_index, entry_type, parent_entry, identifier, info, recipe, hide_location, hide_type)
 		local color_hex = self:ColorData().hex
 		local entity = self:GetEntity(identifier)
+
+		if not entity then
+			return entry_index
+		end
+
 		local entry = private.CreateListEntry(entry_type, parent_entry, recipe)
 		entry:SetLocation(entity.Location)
 		entry:SetText("%s%s %s",
@@ -32,7 +37,13 @@ private.RegisterAcquireType({
 		return private.list_frame:InsertEntry(entry, entry_index, true)
 	end,
 	_func_insert_tooltip_text = function(self, recipe, identifier, localizedLocationName, acquire_info, addline_func)
+		local entity = self:GetEntity(identifier)
+
+		if not entity then
+			return
+		end
+
 		local color_data = self:ColorData()
-		addline_func(0, -1, 0, self:Name(), color_data, self:GetEntity(identifier).name, color_data)
+		addline_func(0, -1, 0, self:Name(), color_data, entity.name, color_data)
 	end,
 })

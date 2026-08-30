@@ -1,12 +1,12 @@
 --[[
     Ackis Recipe List - Location Object
-    
+
     Provides zone/location tracking for recipe sources:
     - Zone map ID constants for all WoW zones
     - Location object with parent/child relationships
     - HereBeDragons integration for map ID resolution
     - Instance entrance coordinates for waypoint navigation
-    
+
     Copyright (c) 2009 - 2012 Ackis <John Pasula>
     All rights reserved by the original author Ackis.
 ]]
@@ -54,6 +54,7 @@ local ZONE_MAP_IDS = {
 	DUROTAR = 1,
 	MULGORE = 7,
 	NORTHERN_BARRENS = 10,
+	THE_BARRENS = 17,
 	ARATHI_HIGHLANDS = 14,
 	BADLANDS = 15,
 	BLASTED_LANDS = 17,
@@ -97,6 +98,7 @@ local ZONE_MAP_IDS = {
 	THUNDER_BLUFF = 88,
 	DARNASSUS = 89,
 	UNDERCITY = { 90, 998 },
+	ALTERAC_MOUNTAINS = 36,
 	ALTERAC_VALLEY = 91,
 	ARATHI_BASIN = 93,
 	EVERSONG_WOODS = 94,
@@ -590,6 +592,7 @@ local COSMIC_MAP_IDS = {
 
 -- Parent zone mapping for cosmic maps
 local COSMIC_MAP_LOCATION_PARENT_MAPPING = {
+	ALTERAC_MOUNTAINS = ZONE_NAMES.EASTERN_KINGDOMS,
 	TELDRASSIL = ZONE_NAMES.KALIMDOR,
 	DARNASSUS = ZONE_NAMES.KALIMDOR,
 	UNDERCITY = ZONE_NAMES.EASTERN_KINGDOMS,
@@ -627,6 +630,7 @@ local COSMIC_MAP_LOCATION_PARENT_MAPPING = {
 	DARKMOON_ISLAND = ZONE_NAMES.THE_MAELSTROM,
 	MOLTEN_CORE = ZONE_NAMES.BURNING_STEPPES,
 	NORTHERN_BARRENS = ZONE_NAMES.KALIMDOR,
+	THE_BARRENS = ZONE_NAMES.KALIMDOR,
 	SOUTHERN_BARRENS = ZONE_NAMES.KALIMDOR,
 	LUNARFALL = ZONE_NAMES.SHADOWMOON_VALLEY_DRAENOR,
 	FROSTWALL = ZONE_NAMES.FROSTFIRE_RIDGE,

@@ -94,7 +94,7 @@ private.RegisterAcquireType({
 		end
 
 		local trainer = self:GetEntity(id_num)
-		if self.CanDisplayFaction(trainer.faction) then
+		if trainer and self.CanDisplayFaction(trainer.faction) then
 			return trainer
 		end
 	end

@@ -34,7 +34,7 @@ private.RegisterAcquireType({
 	_func_expand_list_entry = function(self, entry_index, entry_type, parent_entry, identifier, info, recipe, hide_location, hide_type)
 		local vendor = self:GetEntity(identifier)
 
-		if not self.CanDisplayFaction(vendor.faction) then
+		if not vendor or not self.CanDisplayFaction(vendor.faction) then
 			return entry_index
 		end
 
@@ -107,7 +107,7 @@ private.RegisterAcquireType({
 		end
 
 		local vendor = self:GetEntity(id_num)
-		if self.CanDisplayFaction(vendor.faction) then
+		if vendor and self.CanDisplayFaction(vendor.faction) then
 			return vendor
 		end
 	end,

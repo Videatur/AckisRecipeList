@@ -467,11 +467,13 @@ function Recipe:AddAcquireData(acquireType, typeLabel, ...)
 
 				entity.item_list[self:SpellID()] = quantity
 			else
-				addon:Debug("Spell ID %d: %s ID %s does not exist in the %s AcquireType's Entity table.",
-					self:SpellID(),
-					typeLabel,
-					identifier,
-					acquireType:Label())
+				if not (acquireType.IsEntityFiltered and acquireType:IsEntityFiltered(identifier)) then
+					addon:Debug("Spell ID %d: %s ID %s does not exist in the %s AcquireType's Entity table.",
+						self:SpellID(),
+						typeLabel,
+						identifier,
+						acquireType:Label())
+				end
 			end
 		else
 			local isStringID = type(identifier) == "string"
@@ -592,11 +594,13 @@ function Recipe:AddRepVendor(factionID, reputationLevel, ...)
 
 					self:AddFilters(private.FILTER_IDS[private.FACTION_LABELS_FROM_ID[factionID]])
 				else
-					addon:Debug("Spell ID %d (%s): Reputation Vendor ID %s does not exist in the %s AcquireType Entity table.",
-						self:SpellID(),
-						tostring(self:LocalizedName()),
-						tostring(vendorID),
-						vendorAcquireType:Label())
+					if not (vendorAcquireType.IsEntityFiltered and vendorAcquireType:IsEntityFiltered(vendorID)) then
+						addon:Debug("Spell ID %d (%s): Reputation Vendor ID %s does not exist in the %s AcquireType Entity table.",
+							self:SpellID(),
+							tostring(self:LocalizedName()),
+							tostring(vendorID),
+							vendorAcquireType:Label())
+					end
 				end
 			else
 				addon:Debug("Spell ID %d (%s): Nil Reputation Vendor ID passed.", self:SpellID(), tostring(self:LocalizedName()))

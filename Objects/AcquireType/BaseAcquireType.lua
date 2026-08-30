@@ -4,7 +4,7 @@
 
 -- Functions
 local pairs = _G.pairs
-local tostring = _G.tostring
+local type = _G.type
 
 -- Functions
 local string = _G.string
@@ -18,7 +18,6 @@ local FOLDER_NAME, private = ...
 -- Imports.
 -- ----------------------------------------------------------------------------
 local REPUTATION_COLORS = private.REPUTATION_COLORS
-local UNKNOWN = rawget(_G, "UNKNOWN") or "Unknown"
 local function SafeGetItemQualityColor(q)
 	local fn = rawget(_G, "GetItemQualityColor")
 	if type(fn) == "function" then
@@ -71,10 +70,50 @@ private.AcquireTypes = {}
 -- AcquireType Methods.
 -- ----------------------------------------------------------------------------
 function AcquireType:AddEntity(module, entity)
-	if self._entities[entity.identifier] then
-		private.Debug("Duplicate %s entity from %s: %s - %s.", self:Name(), module.Name, entity.identifier, tostring(entity.name))
-		return
+	local identifier = entity.identifier
+	local expansionID = entity.expansionID
+	local effectiveExpansion = private.GetEffectiveExpansionID()
+
+	if expansionID ~= nil then
+		local isValidExpansionID = type(expansionID) == "number"
+			and expansionID >= 1
+			and expansionID <= #private.GAME_VERSION_NAMES
+			and expansionID % 1 == 0
+
+		if not isValidExpansionID then
+			expansionID = nil
+		end
 	end
+
+	entity.expansionID = expansionID
+
+	if expansionID and effectiveExpansion and expansionID > effectiveExpansion then
+		if self._entities[identifier] then
+			return self._entities[identifier]
+		end
+
+		self._filtered_entities[identifier] = expansionID
+		return nil
+	end
+
+	local existing = self._entities[identifier]
+
+	if existing then
+		local newRevision = expansionID or private.GAME_VERSIONS.ORIG
+		local existingRevision = existing.expansionID or private.GAME_VERSIONS.ORIG
+
+		if newRevision == existingRevision then
+			return existing
+		end
+
+		if newRevision < existingRevision then
+			return existing
+		end
+
+		entity.item_list = existing.item_list
+	end
+
+	self._filtered_entities[identifier] = nil
 
 	if entity.locationName then
 		entity.Location = private.LocationsByLocalizedName[entity.locationName]
@@ -82,15 +121,9 @@ function AcquireType:AddEntity(module, entity)
 			entity.Location = private.EnsureLocationByLocalizedName(entity.locationName)
 		end
 		entity.locationName = nil
-	elseif self:HasCoordinates() then
-    	private.Debug("%s %s (%s) has an unknown location.", self:Name(), entity.name or UNKNOWN, entity.identifier)
 	end
 
-	if entity.faction and self:ID() == private.ACQUIRE_TYPE_IDS.MOB_DROP then
-		private.Debug("Mob %d (%s) has been assigned to faction %s.", entity.identifier, entity.name, entity.faction)
-	end
-
-	self._entities[entity.identifier] = entity
+	self._entities[identifier] = entity
 	return entity
 end
 
@@ -112,6 +145,10 @@ end
 
 function AcquireType:GetEntity(identifier)
 	return self._entities[identifier]
+end
+
+function AcquireType:IsEntityFiltered(identifier)
+	return self._filtered_entities[identifier] ~= nil
 end
 
 function AcquireType:GetOrCreateRecipeData(sourceData, ...)
@@ -201,6 +238,7 @@ function private.RegisterAcquireType(acquireType)
 	local index = #private.ACQUIRE_TYPES_BY_ID + 1
 	acquireType._id = index
 	acquireType._entities = {}
+	acquireType._filtered_entities = {}
 	acquireType._recipes = {}
 
 	_G.setmetatable(acquireType, AcquireTypeMetatable)

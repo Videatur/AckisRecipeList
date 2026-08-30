@@ -31,11 +31,17 @@ private.RegisterAcquireType({
 	-- Methods.
 	-- ----------------------------------------------------------------------------
 	_func_expand_list_entry = function(self, entry_index, entry_type, parent_entry, identifier, info, recipe, hide_location, hide_type)
+		local reputation_entity = self:GetEntity(identifier)
+
+		if not reputation_entity then
+			return entry_index
+		end
+
 		for reputation_level, reputation_level_info in pairs(info) do
 			for vendor_id in pairs(reputation_level_info) do
 				local rep_vendor = private.AcquireTypes.Vendor:GetEntity(vendor_id)
 
-				if not self.CanDisplayFaction(rep_vendor.faction) then
+				if not rep_vendor or not self.CanDisplayFaction(rep_vendor.faction) then
 					return entry_index
 				end
 
@@ -57,7 +63,7 @@ private.RegisterAcquireType({
 				entry:SetText("%s%s %s",
 					self.EntryPadding,
 					hide_type and "" or private.SetTextColor(self:ColorData().hex, REPUTATION_VENDOR_LABEL) .. ":",
-					private.SetTextColor(CATEGORY_COLORS.repname.hex, self:GetEntity(identifier).name))
+					private.SetTextColor(CATEGORY_COLORS.repname.hex, reputation_entity.name))
 
 				entry_index = private.list_frame:InsertEntry(entry, entry_index, true)
 
@@ -92,6 +98,12 @@ private.RegisterAcquireType({
 		end
 	end,
 	_func_insert_tooltip_text = function(self, recipe, identifier, localizedLocationName, acquire_info, addline_func)
+		local reputation_entity = self:GetEntity(identifier)
+
+		if not reputation_entity then
+			return
+		end
+
 		for reputationLevel, levelData in pairs(acquire_info) do
 			for vendorID in pairs(levelData) do
 				local vendor = private.AcquireTypes.Vendor:GetEntity(vendorID)
@@ -109,7 +121,7 @@ private.RegisterAcquireType({
 					local canDisplay, nameColor = self.GetTipFactionInfo(vendor.faction)
 
 					if canDisplay then
-						addline_func(0, -1, false, REPUTATION_VENDOR_LABEL, self:ColorData(), self:GetEntity(identifier).name, CATEGORY_COLORS.repname)
+						addline_func(0, -1, false, REPUTATION_VENDOR_LABEL, self:ColorData(), reputation_entity.name, CATEGORY_COLORS.repname)
 
 						if reputationLevel == 0 then
 							addline_func(1, -2, false, LFAC.NEUTRAL, private.REPUTATION_COLORS.neutral, vendor.name, nameColor)
@@ -140,7 +152,12 @@ private.RegisterAcquireType({
 		end
 
 		local vendor = private.AcquireTypes.Vendor:GetEntity(id_num)
-		if private.Player.reputation_levels[self:GetEntity(vendor.reputation_id).name] then
+		if not vendor or not vendor.reputation_id then
+			return
+		end
+
+		local reputation = self:GetEntity(vendor.reputation_id)
+		if reputation and private.Player.reputation_levels[reputation.name] then
 			return vendor
 		end
 	end,
