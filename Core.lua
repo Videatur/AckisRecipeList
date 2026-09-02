@@ -833,7 +833,10 @@ function addon:OnInitialize()
                 local isKnown = recipe.HasState and recipe:HasState("KNOWN")
                 local hasFaction = player.HasRecipeFaction and player:HasRecipeFaction(recipe)
 
-                if (showAll or (not isKnown and hasLevel)) and hasFaction then
+                local expansionFilter = private.EXPANSION_FILTERS[recipe:ExpansionID()]
+                local expansionAllowed = not expansionFilter or addon.db.profile.filters.obtain[expansionFilter]
+
+                if expansionAllowed and (showAll or (not isKnown and hasLevel)) and hasFaction then
                     AddRecipeLine(tooltip, recipe)
                     addedCount = addedCount + 1
 
