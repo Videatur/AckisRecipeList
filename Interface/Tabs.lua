@@ -18,7 +18,6 @@ local FOLDER_NAME, private = ...
 local LibStub = _G.LibStub
 local addon = LibStub("AceAddon-3.0"):GetAddon(private.addon_name)
 local L = LibStub("AceLocale-3.0"):GetLocale(private.addon_name)
-local HBD = LibStub("HereBeDragons-2.0")
 
 -- ----------------------------------------------------------------------------
 -- Constants.
@@ -37,58 +36,14 @@ local AcquireTypes = private.AcquireTypes
 -- ----------------------------------------------------------------------------
 -- Helpers.
 -- ----------------------------------------------------------------------------
--- Returns true on Classic Era clients (expansion index 1)
-local function IsClassicEra()
-	local ok, eff = pcall(function()
-		return private.GetEffectiveExpansionID and private.GetEffectiveExpansionID()
-	end)
-	return ok and eff and eff <= 1
-end
-
--- Normalize tab piece textures (left/middle/right) so they render consistently across clients.
--- Classic Era ships slightly different atlas slices; using full-height texcoords avoids the pale look.
+-- Selection controls the native atlas slices and label offset.
 local function ApplyTabTextures(self, isActive)
-	local activePath  = "Interface\\PaperDollInfoFrame\\UI-Character-ActiveTab"
-	local inactivePath = "Interface\\PaperDollInfoFrame\\UI-Character-InactiveTab"
-
-	local vMaxActive = IsClassicEra() and 1 or 0.546875
-
-	if isActive then
-		self.left:SetTexture(activePath)
-		self.left:SetTexCoord(0, 0.15625, 0, vMaxActive)
-
-		self.middle:SetTexture(activePath)
-		self.middle:SetTexCoord(0.15625, 0.84375, 0, vMaxActive)
-
-		self.right:SetTexture(activePath)
-		self.right:SetTexCoord(0.84375, 1, 0, vMaxActive)
-	else
-		self.left:SetTexture(inactivePath)
-		self.left:SetTexCoord(0, 0.15625, 0, 1)
-
-		self.middle:SetTexture(inactivePath)
-		self.middle:SetTexCoord(0.15625, 0.84375, 0, 1)
-
-		self.right:SetTexture(inactivePath)
-		self.right:SetTexCoord(0.84375, 1, 0, 1)
-	end
-
-	-- Ensure no unintended tinting/desaturation from client defaults
-	if self.left.SetVertexColor then
-		self.left:SetVertexColor(1, 1, 1); self.left:SetAlpha(1)
-	end
-	if self.middle.SetVertexColor then
-		self.middle:SetVertexColor(1, 1, 1); self.middle:SetAlpha(1)
-	end
-	if self.right.SetVertexColor then
-		self.right:SetVertexColor(1, 1, 1); self.right:SetAlpha(1)
-	end
-	if self.left.SetDesaturated then pcall(self.left.SetDesaturated, self.left, false) end
-	if self.middle.SetDesaturated then pcall(self.middle.SetDesaturated, self.middle, false) end
-	if self.right.SetDesaturated then pcall(self.right.SetDesaturated, self.right, false) end
+    self:SetTabSelected(isActive)
 end
 
 local function Tab_OnClick(self, button, down)
+	-- The handler is also called directly when restoring the saved selection.
+	if self:IsForceDisabled() then return end
 	local tabID = self:GetID()
 	local MainPanel = addon.Frame
 
@@ -106,79 +61,45 @@ local function Tab_OnClick(self, button, down)
 	MainPanel.current_tab = MainPanel.tabs[tabID]
 	MainPanel.list_frame:Update(nil, false)
 
-	if _G.SOUNDKIT and _G.PlaySound then
-		_G.PlaySound(_G.SOUNDKIT.IG_CHARACTER_INFO_TAB, "Master")
-	else
-		-- MoP Classic fallback (numeric sound id)
-		_G.PlaySound(841)
-	end
+	_G.PlaySound(_G.SOUNDKIT.IG_CHARACTER_INFO_TAB, "Master")
 end
 
 local function CreateTab(id_num, text, ...)
-	local tab = _G.setmetatable(_G.CreateFrame("Button", nil, addon.Frame), tab_meta)
-
-	tab:SetID(id_num)
-	tab:SetHeight(32)
-	tab:SetPoint(...)
-	tab:SetFrameLevel(tab:GetFrameLevel() + 4)
-
-	tab.left = tab:CreateTexture(nil, "BORDER")
-	tab.left:SetSize(20, 32)
-
-	tab.right = tab:CreateTexture(nil, "BORDER")
-	tab.right:SetSize(20, 32)
-	tab.right:SetPoint("TOP", tab.left)
-	tab.right:SetPoint("RIGHT", tab)
-
-	tab.middle = tab:CreateTexture(nil, "BORDER")
-	tab.middle:SetHeight(32)
-	tab.middle:SetPoint("LEFT", tab.left, "RIGHT")
-	tab.middle:SetPoint("RIGHT", tab.right, "LEFT")
-
-	tab:SetHighlightTexture([[Interface\PaperDollInfoFrame\UI-Character-Tab-Highlight]], "ADD")
-
-	local tab_highlight = tab:GetHighlightTexture()
-	tab_highlight:ClearAllPoints()
-	tab_highlight:SetPoint("TOPLEFT", tab, "TOPLEFT", 8, 1)
-	tab_highlight:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", -8, 1)
-
-	tab:SetDisabledFontObject(_G.GameFontHighlightSmall)
-	tab:SetHighlightFontObject(_G.GameFontHighlightSmall)
-	tab:SetNormalFontObject(_G.GameFontNormalSmall)
-
-	tab:SetText(text)
-	tab:SetWidth(40 + tab:GetFontString():GetStringWidth())
-
-	tab:ToBack()
-
-	tab:SetScript("OnClick", Tab_OnClick)
-
-	return tab
+    -- InitializeFrame loads Blizzard_Professions before creating these tabs.
+    local tab = _G.setmetatable(_G.CreateFrame("Button", nil, addon.Frame, "ProfessionsFrameTabTemplate"), tab_meta)
+    tab:SetID(id_num)
+    tab.tabID = id_num
+    tab.tabText = text
+    tab:SetHeight(32)
+    tab:SetPoint(...)
+    tab:SetFrameLevel(tab:GetFrameLevel() + 4)
+    tab.Text:SetText(text)
+    -- Four tabs must fit the contracted 384px panel. Keep labels readable
+    -- without forcing every tab to the old 100px minimum.
+    tab:SetWidth(math.max(62, math.min(116, tab.Text:GetStringWidth() + 24)))
+    tab:SetScript("OnClick", Tab_OnClick)
+    ApplyTabTextures(tab, id_num == (addon.db.profile.current_tab or 1))
+    return tab
 end
 
--- ----------------------------------------------------------------------------
--- Tab methods.
--- ----------------------------------------------------------------------------
 function tab_prototype:ToFront()
-	self.left:ClearAllPoints()
-	self.left:SetPoint("BOTTOMLEFT")
-
-	ApplyTabTextures(self, true)
-
-	self:Disable()
+    ApplyTabTextures(self, true)
 end
 
 function tab_prototype:ToBack()
-	self.left:ClearAllPoints()
-	self.left:SetPoint("TOPLEFT")
-
-	ApplyTabTextures(self, false)
-
-	self:Enable()
+    ApplyTabTextures(self, false)
 end
 
 function tab_prototype:SaveListEntryState(listEntry, expanded)
     local professionExpansionState = self.ProfessionState[private.CurrentProfession]
+	if listEntry.guideChapter then
+		professionExpansionState["guide:" .. listEntry.guideChapter.id] = expanded or nil
+		return
+	end
+	if listEntry.category_id then
+		professionExpansionState["continentCategory:" .. listEntry.category_id] = expanded
+		return
+	end
 
     local listEntryAcquireType = listEntry:AcquireType()
 	if listEntryAcquireType then
@@ -225,9 +146,25 @@ end
 -- ----------------------------------------------------------------------------
 -- Tab initialization and methods.
 -- ----------------------------------------------------------------------------
+local GuideTab
 local AcquisitionTab
 local LocationTab
 local RecipesTab
+
+function private.UpdateGuideTabAvailability()
+    if not GuideTab then return end
+    local hasGuide = private.GetProfessionGuide(private.CurrentProfession) ~= nil
+    GuideTab:SetTabEnabled(hasGuide)
+
+    local panel = addon.Frame
+    if not hasGuide and (addon.db.profile.current_tab == 1 or panel.current_tab == GuideTab) then
+        addon.db.profile.current_tab = 4
+        panel.current_tab = RecipesTab
+        for index, tab in ipairs(panel.tabs) do
+            if index == 4 then tab:ToFront() else tab:ToBack() end
+        end
+    end
+end
 
 -- Used for Location and Acquisition sort - since many recipes have multiple locations/acquire types it is
 -- necessary to ensure each is counted only once.
@@ -297,13 +234,38 @@ local function ExpandAcquireData(listEntryIndex, listEntryType, parentListEntry,
 	return listEntryIndex
 end
 
+-- Category visibility must use its own sources, rather than another
+-- acquisition route that makes the recipe globally visible.
+local function HasVisibleAcquisitionSource(recipe, acquireType)
+	if acquireType ~= private.AcquireTypes.Quest then
+		return true
+	end
+	local acquireData = recipe:AcquireDataOfType(acquireType)
+	for identifier in pairs(acquireData or {}) do
+		local quest = acquireType:GetEntity(identifier)
+		-- Preserve unregistered quests: missing data is not an opposing faction.
+		if not quest or acquireType.CanDisplayFaction(quest.faction) then
+			return true
+		end
+	end
+	return false
+end
+
+local function InitializeGuideTab()
+    GuideTab = CreateTab(1, "Guide", "TOPLEFT", addon.Frame, "BOTTOMLEFT", 22, 2)
+    GuideTab.kind = "guide"
+    GuideTab.Initialize = private.PopulateGuideTab
+    GuideTab.ExpandListEntry = private.ExpandGuideEntry
+end
+
 local function InitializeAcquisitionTab()
 	local MainPanel = addon.Frame
 
 	-- Used to hold tables for sorting the tab:The tables are only sorted once, upon creation.
 	local SortedAcquireTypes
 
-	AcquisitionTab = CreateTab(1, L["Acquisition"], "TOPLEFT", addon.Frame, "BOTTOMLEFT", 4, 81)
+	AcquisitionTab = CreateTab(2, L["Acquisition"], "LEFT", GuideTab, "RIGHT", 0, 0)
+    AcquisitionTab.kind = "acquisition"
 
 	function AcquisitionTab:Initialize(expand_mode)
 		local recipe_count = 0
@@ -337,14 +299,14 @@ local function InitializeAcquisitionTab()
 			for spell_id, affiliation in acquireType:RecipePairs() do
 				local recipe = professionRecipes[spell_id]
 
-				if recipe and recipe:IsVisible() then
+				if recipe and recipe:IsVisible() and HasVisibleAcquisitionSource(recipe, acquireType) then
 					count = count + 1
 
 					if not recipe_registry[recipe] then
 						recipe_registry[recipe] = true
 						recipe_count = recipe_count + 1
 					end
-                elseif professionExpansionState[recipe] then
+                elseif recipe and not recipe:IsVisible() and professionExpansionState[recipe] then
                     professionExpansionState[recipe] = nil
                 end
 			end
@@ -353,9 +315,8 @@ local function InitializeAcquisitionTab()
 				local isAcquireTypeExpanded = professionExpansionState[acquireType]
 				local listEntry = CreateListEntry("header")
 				listEntry:SetAcquireType(acquireType)
-                listEntry:SetText("%s (%d)",
-                    SetTextColor(acquireType:ColorData().hex, acquireType:Name()),
-                    count)
+                listEntry.acquisitionCount = count
+                listEntry:SetText(acquireType:Name())
 
 				insert_index = MainPanel.list_frame:InsertEntry(listEntry, insert_index, isAcquireTypeExpanded or expand_mode, isAcquireTypeExpanded or expand_mode)
             elseif professionExpansionState[acquireType] then
@@ -385,7 +346,7 @@ local function InitializeAcquisitionTab()
 
             for index = 1, #sorted_recipes do
 				local recipe = currentProfession.Recipes[sorted_recipes[index]]
-				if recipe and recipe:IsVisible() then
+				if recipe and recipe:IsVisible() and HasVisibleAcquisitionSource(recipe, entryAcquireType) then
 					local expand = false
 					local entry_type = "subheader"
 
@@ -419,7 +380,27 @@ local function InitializeLocationTab()
 	-- Used to hold tables for sorting the tab: The tables are only sorted once upon creation.
 	local SortedLocations
 
-	LocationTab = CreateTab(2, L["Location"], "LEFT", AcquisitionTab, "RIGHT", -14, 0)
+	local function InsertLocationHeader(tab, location, count, parentEntry, insertIndex, expandMode)
+		local localizedName = location:LocalizedName()
+		local continentID = location:ContinentID()
+		local displayName = (location == private.WorldDropLocation or location == private.ContinentLocationByID[continentID])
+			and L["World Drop"] or localizedName
+		local listEntry = CreateListEntry("header", parentEntry)
+		listEntry:SetLocation(location)
+		if localizedName == _G.GetRealZoneText() then
+			listEntry:Emphasize(true)
+			listEntry:SetText("%s (%d)", SetTextColor(private.DIFFICULTY_COLORS.optimal.hex, displayName), count)
+		else
+			listEntry:Emphasize(false)
+			listEntry:SetText("%s (%d)", SetTextColor("f0dfbd", displayName), count)
+		end
+		local professionExpansionState = tab:GetProfessionExpansionState(private.CurrentProfession)
+		local isExpanded = professionExpansionState[location]
+		return MainPanel.list_frame:InsertEntry(listEntry, insertIndex, isExpanded or expandMode, isExpanded or expandMode)
+	end
+
+	LocationTab = CreateTab(3, L["Location"], "LEFT", AcquisitionTab, "RIGHT", 0, 0)
+    LocationTab.kind = "location"
 
 	function LocationTab:Initialize(expand_mode)
 		local search_box = MainPanel.search_editbox
@@ -437,6 +418,11 @@ local function InitializeLocationTab()
 				local aCont = (locationA and locationA:ContinentID()) or 9999
 				local bCont = (locationB and locationB:ContinentID()) or 9999
 				if aCont == bCont then
+					local continent = private.ContinentLocationByID[aCont]
+					if locationA ~= locationB then
+						if locationA == continent then return true end
+						if locationB == continent then return false end
+					end
 					local aName = (locationA and locationA:LocalizedName()) or ""
 					local bName = (locationB and locationB:LocalizedName()) or ""
 					return aName < bName
@@ -450,6 +436,7 @@ local function InitializeLocationTab()
         local professionExpansionState = self:GetProfessionExpansionState(currentProfession)
 
         local currentContinentID
+		local currentCategory
 
         local recipe_count = 0
         local insert_index = 1
@@ -515,38 +502,25 @@ local function InitializeLocationTab()
                 local locationContinentID = location:ContinentID()
 				if locationContinentID ~= currentContinentID then
 					currentContinentID = locationContinentID
+					currentCategory = nil
 
-					local listEntry = CreateListEntry("title")
-					-- Safe continent header name resolution
 					local continentObj = private.ContinentLocationByID and locationContinentID and private.ContinentLocationByID[locationContinentID]
 					local continentHeaderName = (continentObj and continentObj:LocalizedName())
 						or (private.ZONE_NAMES and (private.ZONE_NAMES.AZEROTH or "Azeroth"))
 						or "Azeroth"
-					listEntry:SetText(SetTextColor(private.CATEGORY_COLORS.location.hex, continentHeaderName))
-					insert_index = MainPanel.list_frame:InsertEntry(listEntry, insert_index)
+					currentCategory = CreateListEntry("category")
+					currentCategory.category_id = locationContinentID
+					currentCategory.locations = {}
+					currentCategory:SetText(continentHeaderName)
+					local savedExpansion = professionExpansionState["continentCategory:" .. locationContinentID]
+					insert_index = MainPanel.list_frame:InsertEntry(currentCategory, insert_index, expand_mode or savedExpansion ~= false)
 				end
-
-			local listEntry = CreateListEntry("header")
-                listEntry:SetLocation(location)
-			local currentMapID = HBD:GetPlayerZone()
-			local PlayerZone = currentMapID and HBD:GetLocalizedMap(currentMapID)
-
-				if localizedLocationName == _G.GetRealZoneText() then
-					listEntry:Emphasize(true)
-					listEntry:SetText("%s (%d)",
-						SetTextColor(private.DIFFICULTY_COLORS.optimal.hex, localizedLocationName),
-						count
-					)
-				else
-					listEntry:Emphasize(false)
-					listEntry:SetText("%s (%d)",
-						SetTextColor(private.CATEGORY_COLORS.location.hex, localizedLocationName),
-						count
-					)
+				if currentCategory then
+					currentCategory.locations[#currentCategory.locations + 1] = { location, count }
 				end
-
-				local isLocationExpanded = professionExpansionState[location]
-				insert_index = MainPanel.list_frame:InsertEntry(listEntry, insert_index, isLocationExpanded or expand_mode, isLocationExpanded or expand_mode)
+				if not currentCategory or currentCategory.is_expanded then
+					insert_index = InsertLocationHeader(self, location, count, currentCategory, insert_index, expand_mode)
+				end
             elseif professionExpansionState[location] then
                 professionExpansionState[location] = nil
             end
@@ -566,7 +540,12 @@ local function InitializeLocationTab()
 
 		self:SaveListEntryState(entry, true)
 
-		if entry:IsHeader() then
+		if entry:IsCategory() then
+			for index = 1, #entry.locations do
+				local locationInfo = entry.locations[index]
+				new_entry_index = InsertLocationHeader(self, locationInfo[1], locationInfo[2], entry, new_entry_index, expand_mode)
+			end
+		elseif entry:IsHeader() then
             local currentProfession = private.CurrentProfession
             local professionExpansionState = self:GetProfessionExpansionState(currentProfession)
 
@@ -626,7 +605,8 @@ end
 local function InitializeRecipesTab()
 	local MainPanel = addon.Frame
 
-	RecipesTab = CreateTab(3, _G.TRADESKILL_SERVICE_LEARN, "LEFT", LocationTab, "RIGHT", -14, 0)
+	RecipesTab = CreateTab(4, _G.TRADESKILL_SERVICE_LEARN, "LEFT", LocationTab, "RIGHT", 0, 0)
+    RecipesTab.kind = "recipes"
 
 	function RecipesTab:Initialize(expand_mode)
         local currentProfession = private.CurrentProfession
@@ -679,6 +659,10 @@ function private.InitializeTabs()
 	local MainPanel = addon.Frame
 	MainPanel.tabs = {}
 
+    private.MigrateGuideTabProfile(addon.db.profile)
+    InitializeGuideTab()
+    MainPanel.tabs[#MainPanel.tabs + 1] = GuideTab
+
 	InitializeAcquisitionTab()
 	MainPanel.tabs[#MainPanel.tabs + 1] = AcquisitionTab
 
@@ -687,6 +671,14 @@ function private.InitializeTabs()
 
 	InitializeRecipesTab()
 	MainPanel.tabs[#MainPanel.tabs + 1] = RecipesTab
+
+    -- Keep these three tabs compact and equally wide, fitting both labels.
+    local compactWidth = math.max(LocationTab:GetWidth(), RecipesTab:GetWidth())
+    GuideTab:SetWidth(compactWidth)
+    LocationTab:SetWidth(compactWidth)
+    RecipesTab:SetWidth(compactWidth)
+
+    private.UpdateGuideTabAvailability()
 
 	private.InitializeTabs = nil
 end

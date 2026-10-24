@@ -21,7 +21,6 @@ local LibStub = _G.LibStub
 ---@type any
 local addon = LibStub("AceAddon-3.0"):GetAddon(private.addon_name)
 local L = LibStub("AceLocale-3.0"):GetLocale(private.addon_name)
-local Dialog = LibStub("LibDialog-1.0")
 
 -- ----------------------------------------------------------------------------
 -- Imports.
@@ -31,89 +30,73 @@ local BASIC_COLORS = private.BASIC_COLORS
 -- ----------------------------------------------------------------------------
 -- Constants
 -- ----------------------------------------------------------------------------
-local NUM_RECIPE_LINES	= 25
+local NUM_RECIPE_LINES	= 15
 local SCROLL_DEPTH	= 5
-local LISTFRAME_WIDTH	= 295
-local LIST_ENTRY_WIDTH	= 286
+local LISTFRAME_WIDTH	= 368
+local LIST_ENTRY_WIDTH	= LISTFRAME_WIDTH - 42
 
 -- ----------------------------------------------------------------------------
 -- Upvalues
 -- ----------------------------------------------------------------------------
 local ListItem_ShowTooltip
 
-local acquire_tip -- replaced by GameTooltip usage; keep reference for cleanup logic
+local QTip = LibStub("LibQTip-2.0")
+local acquire_tip
+local ReleaseAcquireTooltip
+local separatorTextures = {}
+
+local function ClearTooltipSeparators()
+	for index = 1, #separatorTextures do separatorTextures[index]:Hide() end
+	table.wipe(separatorTextures)
+	if acquire_tip and acquire_tip.ackisSeparatorAligner then acquire_tip.ackisSeparatorAligner:Hide() end
+end
+
+local function AlignTooltipSeparators()
+	for _, line in ipairs(separatorTextures) do
+		local row = line.ackisRow
+		local top = row:GetTop()
+		local pixel = _G.PixelUtil.GetPixelToUIUnitFactor() / row:GetEffectiveScale()
+		if top and (line.ackisAlignedTop ~= top or line.ackisPixelSize ~= pixel) then
+			-- Snap the actual screen edge, not an offset from a fractional row.
+			local snappedTop = math.floor((top - 4) / pixel + 0.5) * pixel
+			line:ClearAllPoints()
+			line:SetPoint("TOPLEFT", row, "TOPLEFT", 0, snappedTop - top)
+			line:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, snappedTop - top)
+			line:SetHeight(pixel)
+			line.ackisAlignedTop, line.ackisPixelSize = top, pixel
+		end
+	end
+end
 
 -- ----------------------------------------------------------------------------
 -- Dialogs.
 -- ----------------------------------------------------------------------------
--- (Removed ARL_NotScanned popup)
+local listDialogs = {
+	ARL_AllFiltered = L["ALL_FILTERED"],
+	ARL_AllKnown = L["ARL_ALLKNOWN"],
+	ARL_AllExcluded = L["ARL_ALLEXCLUDED"],
+	ARL_SearchFiltered = L["ARL_SEARCHFILTERED"],
+}
 
---
-Dialog:Register("ARL_AllFiltered", {
-	text = L["ALL_FILTERED"],
-	buttons = {
-		{
-			text = _G.OKAY
-		},
-	},
-	show_while_dead = true,
-	hide_on_escape = true,
-	width = 360,
-	text_justify_h = "LEFT",
-	text_justify_v = "MIDDLE",
-})
-
---
-Dialog:Register("ARL_AllKnown", {
-	text = L["ARL_ALLKNOWN"],
-	buttons = {
-		{
-			text = _G.OKAY
-		},
-	},
-	show_while_dead = true,
-	hide_on_escape = true,
-	width = 360,
-	text_justify_h = "LEFT",
-	text_justify_v = "MIDDLE",
-})
-
---
-Dialog:Register("ARL_AllExcluded", {
-	text = L["ARL_ALLEXCLUDED"],
-	buttons = {
-		{
-			text = _G.OKAY
-		},
-	},
-	show_while_dead = true,
-	hide_on_escape = true,
-	width = 360,
-	text_justify_h = "LEFT",
-	text_justify_v = "MIDDLE",
-})
-
---
-Dialog:Register("ARL_SearchFiltered", {
-	text = L["ARL_SEARCHFILTERED"],
-	buttons = {
-		{
-			text = _G.OKAY
-		},
-	},
-	show_while_dead = true,
-	hide_on_escape = true,
-	width = 360,
-	text_justify_h = "LEFT",
-	text_justify_v = "MIDDLE",
-})
+-- Let Blizzard manage the popup template, sizing and dismissal behavior.
+for name, text in pairs(listDialogs) do
+	_G.StaticPopupDialogs[name] = {
+		text = text,
+		button1 = _G.OKAY,
+		timeout = 0,
+		whileDead = true,
+		hideOnEscape = true,
+		wideText = true,
+		wide = true,
+		OnShow = function(self) private.ShowPopupBackground(self) end,
+		OnHide = function(self) private.HidePopupBackground(self) end,
+	}
+end
 
 function private.DismissDialogs()
-	-- Dialog:Dismiss("ARL_NotScanned") -- no longer used
-	Dialog:Dismiss("ARL_AllFiltered")
-	Dialog:Dismiss("ARL_AllKnown")
-	Dialog:Dismiss("ARL_AllExcluded")
-	Dialog:Dismiss("ARL_SearchFiltered")
+	for name in pairs(listDialogs) do
+		_G.StaticPopup_Hide(name)
+	end
 end
 
 
@@ -121,25 +104,78 @@ end
 -- Frame creation and anchoring
 -- ----------------------------------------------------------------------------
 local SpellTooltip = _G.CreateFrame("GameTooltip", "AckisRecipeList_SpellTooltip", _G.UIParent, "GameTooltipTemplate")
-local AcquireTooltip = _G.CreateFrame("GameTooltip", "AckisRecipeList_AcquireTooltip", _G.UIParent, "GameTooltipTemplate")
+
+ReleaseAcquireTooltip = function()
+	SpellTooltip:Hide()
+	ClearTooltipSeparators()
+	if acquire_tip then
+		-- Detach the native preview before this frame returns to QTip's pool.
+		SpellTooltip:SetOwner(_G.UIParent, "ANCHOR_NONE")
+		local tooltip = acquire_tip
+		acquire_tip = nil
+		tooltip:Release()
+	end
+end
+
+-- The template queues data refreshes but does not inherit an OnUpdate script.
+-- Process native item/effect updates without requiring another preview click.
+SpellTooltip:SetScript("OnUpdate", _G.GameTooltip_OnUpdate)
+
+-- Resolve the native preview without routing Shift through chat links.
+local function CraftedItemTooltipLink(recipe)
+    local itemID = recipe:CraftedItem()
+    local link
+    if itemID then
+        local name, itemLink = private.GetItemInfo(itemID)
+        link = itemLink or ("item:%d"):format(itemID)
+        if not name then
+            _G.C_Item.RequestLoadItemDataByID(itemID)
+        end
+    else
+        link = private.GetSpellLink(recipe:SpellID()) or ("spell:%d"):format(recipe:SpellID())
+    end
+    return link
+end
+
+-- Only recipes with an explicit AddMerchantFavor cost receive this line.
+function private.AddMerchantFavorTooltipLine(recipe, addline_func)
+	local amount = recipe:MerchantFavor()
+	if not amount then
+		return
+	end
+
+	local name = "Merchant's Favor"
+	local icon = "Interface\\Icons\\racial_dwarf_findtreasure"
+	if _G.C_CurrencyInfo and _G.C_CurrencyInfo.GetCurrencyInfo then
+		local info = _G.C_CurrencyInfo.GetCurrencyInfo(3402)
+		if info then
+			name = info.name and info.name ~= "" and info.name or name
+			icon = info.iconFileID and info.iconFileID ~= 0 and info.iconFileID or icon
+		end
+	elseif _G.GetCurrencyInfo then
+		local currencyName, _, currencyIcon = _G.GetCurrencyInfo(3402)
+		name = currencyName and currencyName ~= "" and currencyName or name
+		icon = currencyIcon and currencyIcon ~= 0 and currencyIcon or icon
+	end
+
+	addline_func(0, 0, false, ("|T%s:16:16:0:0|t %s:"):format(icon, name), BASIC_COLORS.normal, amount, BASIC_COLORS.white)
+end
 
 function private.InitializeListFrame()
 	local MainPanel	= addon.Frame
-	local ListFrame = private.CreateFrameWithBackdrop("Frame", nil, MainPanel)
+	local ListFrame = _G.CreateFrame("Frame", nil, MainPanel, "InsetFrameTemplate")
 	ListFrame:SetSize(LISTFRAME_WIDTH, 335)
-	ListFrame:SetPoint("TOPLEFT", MainPanel, "TOPLEFT", 22, -75)
-	local listBackdrop = {
-		bgFile = [[Interface\DialogFrame\UI-DialogBox-Background-Dark]],
-		tile = true,
-		tileSize = 16,
-	}
-	private.BackdropUtil.SafeSetBackdrop(ListFrame, listBackdrop, {1, 1, 1, 1})
+	ListFrame:SetPoint("TOPLEFT", MainPanel, "TOPLEFT", 8, -75)
+	-- Use the same background atlas as ProfessionsRecipeListTemplate.
+	if ListFrame.Bg then ListFrame.Bg:Hide() end
+	local background = ListFrame:CreateTexture(nil, "BACKGROUND")
+	background:SetAllPoints()
+	background:SetAtlas("Professions-background-summarylist")
+	ListFrame.Background = background
 	ListFrame:EnableMouse(true)
 	ListFrame:EnableMouseWheel(true)
 	ListFrame:SetScript("OnHide", function(self)
-		if acquire_tip and acquire_tip.Hide then
-			acquire_tip:Hide()
-		end
+		ReleaseAcquireTooltip()
 		SpellTooltip:Hide()
 		_G.GameTooltip:Hide()
 		self.selected_entry = nil
@@ -155,100 +191,73 @@ function private.InitializeListFrame()
 		end
 	end)
 	MainPanel.list_frame = ListFrame
+    local visibleLines = NUM_RECIPE_LINES
 	private.list_frame = ListFrame
 
 	-- ----------------------------------------------------------------------------
 	-- Scroll bar.
 	-- ----------------------------------------------------------------------------
-	local ScrollBar = _G.CreateFrame("Slider", nil, ListFrame)
-
-	ScrollBar:SetPoint("TOPLEFT", ListFrame, "TOPRIGHT", 5, -11)
-	ScrollBar:SetPoint("BOTTOMLEFT", ListFrame, "BOTTOMRIGHT", 5, 12)
-	ScrollBar:SetWidth(24)
-
-	ScrollBar:EnableMouseWheel(true)
-	ScrollBar:SetOrientation("VERTICAL")
-
-	ScrollBar:SetThumbTexture([[Interface\Buttons\UI-ScrollBar-Knob]])
-	ScrollBar:SetMinMaxValues(0, 1)
-	ScrollBar:SetValueStep(1)
-
+	local ScrollBar = _G.CreateFrame("EventFrame", nil, ListFrame, "MinimalScrollBar")
+	ScrollBar:SetPoint("TOPRIGHT", ListFrame, "TOPRIGHT", -10, -5)
+	ScrollBar:SetPoint("BOTTOMRIGHT", ListFrame, "BOTTOMRIGHT", -10, 5)
+	ScrollBar:SetWidth(8)
+	ScrollBar:SetInterpolateScroll(false)
+	ScrollBar:Init(1, 1)
+	-- Hide only the track artwork. The thumb is a child of Track, which must
+	-- remain visible and interactive for dragging and clicking to scroll.
+	ScrollBar.Track.Begin:Hide()
+	ScrollBar.Track.Middle:Hide()
+	ScrollBar.Track.End:Hide()
 	ListFrame.scroll_bar = ScrollBar
 
-	local ScrollUpButton = _G.CreateFrame("Button", nil, ScrollBar, "UIPanelScrollUpButtonTemplate")
-
-	ScrollUpButton:SetHeight(16)
-	ScrollUpButton:SetWidth(18)
-	ScrollUpButton:SetPoint("BOTTOM", ScrollBar, "TOP", 0, -4)
-
-	local ScrollDownButton = _G.CreateFrame("Button", nil, ScrollBar,"UIPanelScrollDownButtonTemplate")
-
-	ScrollDownButton:SetHeight(16)
-	ScrollDownButton:SetWidth(18)
-	ScrollDownButton:SetPoint("TOP", ScrollBar, "BOTTOM", 0, 4)
-
-	local function ScrollBar_Scroll(delta)
-		if not ScrollBar:IsShown() then
-			return
-		end
-		local cur_val = ScrollBar:GetValue()
-		local min_val, max_val = ScrollBar:GetMinMaxValues()
-
-		if delta < 0 and cur_val < max_val then
-			cur_val = math.min(max_val, cur_val + SCROLL_DEPTH)
-			ScrollBar:SetValue(cur_val)
-		elseif delta > 0 and cur_val > min_val then
-			cur_val = math.max(min_val, cur_val - SCROLL_DEPTH)
-			ScrollBar:SetValue(cur_val)
-		end
+	-- Adapt Ackis' saved row offsets to the native percentage-based controller.
+	-- Programmatic restores must not trigger another list rebuild.
+	local minimum, maximum, offset = 0, 0, 0
+	local syncing = false
+	function ScrollBar:GetMinMaxValues()
+		return minimum, maximum
 	end
-
-	ScrollUpButton:SetScript("OnClick", function(self, _, _)
-		if _G.IsAltKeyDown() then
-			local min_val = ScrollBar:GetMinMaxValues()
-			ScrollBar:SetValue(min_val)
-		else
-			ScrollBar_Scroll(1)
-		end
-	end)
-
-	ScrollDownButton:SetScript("OnClick", function(self, _, _)
-		if _G.IsAltKeyDown() then
-			local _, max_val = ScrollBar:GetMinMaxValues()
-			ScrollBar:SetValue(max_val)
-		else
-			ScrollBar_Scroll(-1)
-		end
-	end)
-
-	ScrollBar:SetScript("OnMouseWheel", function(self, delta)
-		ScrollBar_Scroll(delta)
-	end)
-
-	ListFrame:SetScript("OnMouseWheel", function(self, delta)
-		ScrollBar_Scroll(delta)
-	end)
-
-	-- This can be called either from ListFrame's OnMouseWheel script, manually
-	-- sliding the thumb, or from clicking the up/down buttons.
-	ScrollBar:SetScript("OnValueChanged", function(self, value)
-		local min_val, max_val = self:GetMinMaxValues()
-
-		if value == min_val then
-			ScrollUpButton:Disable()
-			ScrollDownButton:Enable()
-		elseif value == max_val then
-			ScrollUpButton:Enable()
-			ScrollDownButton:Disable()
-		else
-			ScrollUpButton:Enable()
-			ScrollDownButton:Enable()
-		end
+	function ScrollBar:GetValue()
+		return offset
+	end
+	function ScrollBar:SetMinMaxValues(low, high)
+		minimum, maximum = low, math.max(low, high)
+		local range = maximum - minimum
+		self:SetVisibleExtentPercentage(visibleLines / (visibleLines + range))
+		self:SetPanExtentPercentage(range > 0 and 1 / range or 1)
+	end
+	function ScrollBar:SetValue(value)
+		offset = math.max(minimum, math.min(maximum, math.floor(value + 0.5)))
+		local range = maximum - minimum
+		syncing = true
+		self:SetScrollPercentage(range > 0 and (offset - minimum) / range or 0, true)
+		syncing = false
+	end
+	ScrollBar:RegisterCallback(_G.ScrollBarMixin.Event.OnScroll, function(_, percentage)
+		if syncing or not MainPanel.current_tab or not private.CurrentProfession then return end
+		local value = math.floor(minimum + percentage * (maximum - minimum) + 0.5)
+		if value == offset then return end
+		offset = value
 		MainPanel.current_tab:SetScrollValue(private.CurrentProfession, value)
 		ListFrame:Update(nil, true)
-	end)
+	end, ListFrame)
+
+	local function ScrollBar_Scroll(delta)
+		if not ScrollBar:IsShown() or maximum <= minimum or not MainPanel.current_tab or not private.CurrentProfession then return end
+		local value = math.max(minimum, math.min(maximum, offset - delta * SCROLL_DEPTH))
+		if value == offset then return end
+		ScrollBar:SetValue(value)
+		MainPanel.current_tab:SetScrollValue(private.CurrentProfession, value)
+		ListFrame:Update(nil, true)
+	end
+	ScrollBar:EnableMouseWheel(true)
+	ScrollBar:SetScript("OnMouseWheel", function(_, delta) ScrollBar_Scroll(delta) end)
+	ListFrame:SetScript("OnMouseWheel", function(_, delta) ScrollBar_Scroll(delta) end)
 
 	local function Bar_OnEnter(self)
+		if self and self.categoryHeader and self.categoryHeader:IsShown() then
+			self.categoryHeader:CheckHighlightTitle(true)
+		end
 		if ListFrame.selected_entry then
 			return
 		end
@@ -258,14 +267,16 @@ function private.InitializeListFrame()
 		ListItem_ShowTooltip(ListFrame.entries[self.entry_index])
 	end
 
-	local function Bar_OnLeave()
+	local function Bar_OnLeave(self)
+		if self and self.categoryHeader and self.categoryHeader:IsShown() then
+			self.categoryHeader:CheckHighlightTitle(false)
+		end
 		if ListFrame.selected_entry then
 			return
 		end
-		if acquire_tip and acquire_tip.Hide then
-			acquire_tip:Hide()
-		end
+		ReleaseAcquireTooltip()
 		SpellTooltip:Hide()
+        _G.GameTooltip:Hide()
 	end
 
 	local function ListItem_OnClick(self, button, down)
@@ -276,6 +287,24 @@ function private.InitializeListFrame()
 		end
 		local listEntry = ListFrame.entries[clickedIndex]
 		local recipe = listEntry.recipe
+
+        if listEntry.guideStep or listEntry.guideShopping then
+            private.OpenGuideStep(private.CurrentProfession, listEntry.guideChapter, listEntry.guideStep)
+            return
+        end
+
+        if button == "LeftButton" and not _G.IsModifierKeyDown() and listEntry.acquisitionSourceRow then
+            if listEntry.waypointTarget then
+                addon:AddWaypoint(recipe, listEntry:AcquireType(), listEntry:Location(), listEntry:NPCID())
+            end
+            return
+        end
+
+        if recipe and button == "RightButton" and _G.IsShiftKeyDown()
+            and not _G.IsControlKeyDown() and not _G.IsAltKeyDown() then
+            ListItem_ShowTooltip(listEntry, true)
+            return
+        end
 
 		if button == "RightButton" and recipe and (not listEntry.parent or listEntry.parent.recipe ~= listEntry.recipe) then
 			local old_selected = ListFrame.selected_entry
@@ -302,12 +331,12 @@ function private.InitializeListFrame()
 				if _G.IsShiftKeyDown() and recipe:HasCoordinates() then
 					addon:AddWaypoint(recipe, listEntry:AcquireType(), listEntry:Location(), listEntry:NPCID())
                 else
-                    hyperLink = _G.GetSpellLink(recipe:SpellID())
+                    hyperLink = private.GetSpellLink(recipe:SpellID())
 				end
 			elseif _G.IsShiftKeyDown() then
 				local craftedItemID = recipe:CraftedItem()
 				if craftedItemID then
-					local _, itemLink = _G.GetItemInfo(craftedItemID)
+					local _, itemLink = private.GetItemInfo(craftedItemID)
 					if itemLink then
                         hyperLink = itemLink
 					else
@@ -321,6 +350,7 @@ function private.InitializeListFrame()
 				local recipeSpellID = recipe:SpellID()
 
 				exclusion_list[recipeSpellID] = (not exclusion_list[recipeSpellID] and true or nil)
+                private.IncrementFilterVersion()
 				ListFrame:Update(nil, false)
             end
 
@@ -354,23 +384,23 @@ function private.InitializeListFrame()
 
 	for index = 1, NUM_RECIPE_LINES do
 		local buttonContainer = _G.CreateFrame("Frame", nil, ListFrame)
-		buttonContainer:SetSize(LIST_ENTRY_WIDTH, 16)
+		buttonContainer:SetSize(LIST_ENTRY_WIDTH, 20)
 
         if index == 1 then
-            buttonContainer:SetPoint("TOPLEFT", ListFrame, "TOPLEFT", 0, -3)
+            buttonContainer:SetPoint("TOPLEFT", ListFrame, "TOPLEFT", 6, -4)
         else
-            buttonContainer:SetPoint("TOPLEFT", ListEntryButtonContainers[index - 1], "BOTTOMLEFT", 0, 3)
+            buttonContainer:SetPoint("TOPLEFT", ListEntryButtonContainers[index - 1], "BOTTOMLEFT", 0, -2)
         end
 
 		local stateButton = _G.CreateFrame("Button", nil, ListFrame)
-		stateButton:SetSize(16, 16)
+		stateButton:SetSize(16, 20)
         stateButton:SetPoint("LEFT", buttonContainer, "LEFT", 0, 0)
         stateButton:SetScript("OnClick", ListItem_OnClick)
 
         stateButton.container = buttonContainer
 
         local listEntry = _G.CreateFrame("Button", ("%s_ListEntryButton%d"):format(FOLDER_NAME, index), buttonContainer)
-		listEntry:SetSize(LIST_ENTRY_WIDTH, 16)
+		listEntry:SetSize(LIST_ENTRY_WIDTH, 20)
         listEntry:SetPoint("LEFT", stateButton, "RIGHT", -3, 0)
         listEntry:RegisterForClicks("AnyUp")
 
@@ -378,16 +408,15 @@ function private.InitializeListFrame()
         stateButton.listEntry = listEntry
 
 		local highlightTexture = listEntry:CreateTexture(nil, "BORDER")
-		highlightTexture:SetTexture([[Interface\ClassTrainerFrame\TrainerTextures]])
-		highlightTexture:SetTexCoord(0.00195313, 0.57421875, 0.75390625, 0.84570313)
+		highlightTexture:SetAtlas("Professions_Recipe_Hover")
 		highlightTexture:SetBlendMode("ADD")
 		highlightTexture:SetPoint("TOPLEFT", 2, 0)
 		highlightTexture:SetPoint("BOTTOMRIGHT", -2, 1)
 		listEntry:SetHighlightTexture(highlightTexture)
+		listEntry.highlight_texture = highlightTexture
 
 		local selectedTexture = listEntry:CreateTexture(nil, "BORDER")
-		selectedTexture:SetTexture([[Interface\ClassTrainerFrame\TrainerTextures]])
-		selectedTexture:SetTexCoord(0.00195313, 0.57421875, 0.84960938, 0.94140625)
+		selectedTexture:SetAtlas("Professions_Recipe_Active")
 		selectedTexture:SetBlendMode("ADD")
 		selectedTexture:SetPoint("TOPLEFT", 2, 0)
 		selectedTexture:SetPoint("BOTTOMRIGHT", -2, 1)
@@ -401,26 +430,64 @@ function private.InitializeListFrame()
 		emphasisTexture:SetPoint("BOTTOMRIGHT", -2, 1)
 		listEntry.emphasis_texture = emphasisTexture
 
-        local titleBackgroundTexture = listEntry:CreateTexture(nil, "ARTWORK")
-        titleBackgroundTexture:SetAtlas("Objective-Header", false)
-        titleBackgroundTexture:SetPoint("TOPLEFT", -9, 5)
-        titleBackgroundTexture:SetPoint("BOTTOMRIGHT", 9, -23)
+        local titleBackgroundTexture = _G.CreateFrame("Frame", nil, listEntry)
+        titleBackgroundTexture:SetAllPoints(listEntry)
+        titleBackgroundTexture:SetFrameLevel(listEntry:GetFrameLevel() - 1)
+        local left = titleBackgroundTexture:CreateTexture(nil, "BACKGROUND")
+        left:SetAtlas("Professions-recipe-header-left", true)
+        left:SetPoint("LEFT")
+        local right = titleBackgroundTexture:CreateTexture(nil, "BACKGROUND")
+        right:SetAtlas("Professions-recipe-header-right", true)
+        right:SetPoint("RIGHT")
+        local middle = titleBackgroundTexture:CreateTexture(nil, "BACKGROUND")
+        middle:SetAtlas("Professions-recipe-header-middle")
+        middle:SetPoint("TOPLEFT", left, "TOPRIGHT")
+        middle:SetPoint("BOTTOMRIGHT", right, "BOTTOMLEFT")
         listEntry.titleBackgroundTexture = titleBackgroundTexture
+		listEntry.titleBackgroundSlices = { left, middle, right }
 
 		local label = listEntry:CreateFontString(nil, "ARTWORK")
 		label:SetPoint("LEFT", listEntry, "LEFT", 7, 0)
 		label:SetPoint("RIGHT", listEntry, "RIGHT", -7, 0)
-		label:SetFontObject("GameFontNormalSmall")
+		label:SetFontObject("GameFontHighlight_NoShadow")
 		label:SetJustifyH("LEFT")
 		label:SetJustifyV("MIDDLE")
 		label:SetWordWrap(false)
 
 		listEntry:SetFontString(label)
 		listEntry.text = label
+        listEntry.guide_status_icon = listEntry:CreateTexture(nil, "ARTWORK")
+        listEntry.guide_status_icon:SetSize(16, 16)
+        listEntry.guide_status_icon:SetPoint("LEFT", 7, 0)
+        listEntry.guide_progress = listEntry:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        listEntry.guide_progress:SetPoint("RIGHT", -7, 0)
+        listEntry.guide_progress:SetWidth(40)
+        listEntry.guide_progress:SetJustifyH("RIGHT")
+        listEntry.guide_progress:SetTextColor(.8, .75, .6)
+
 
 		ListEntryButtonContainers[index] = buttonContainer
 		ListFrame.ListEntryButtons[index] = listEntry
 	end
+
+    function ListFrame:SetGuideLayout(isGuide)
+        local rowGap = 2
+        local rowHeight = isGuide and 24 or 20
+        visibleLines = isGuide and 12 or NUM_RECIPE_LINES
+        self.visibleLines = visibleLines
+        for index, container in ipairs(ListEntryButtonContainers) do
+            container:ClearAllPoints()
+            if index == 1 then
+                container:SetPoint("TOPLEFT", self, "TOPLEFT", 6, -4)
+            else
+                container:SetPoint("TOPLEFT", ListEntryButtonContainers[index - 1], "BOTTOMLEFT", 0, -rowGap)
+            end
+            container:SetHeight(rowHeight)
+            container:SetShown(index <= visibleLines)
+            self.ListEntryButtons[index]:SetHeight(rowHeight)
+            self.ListEntryButtons[index].stateButton:SetHeight(rowHeight)
+        end
+    end
 
 	function ListFrame:InsertEntry(entry, entry_index, entry_expanded, expand_mode)
 		local insert_index = entry_index
@@ -432,7 +499,7 @@ function private.InitializeListFrame()
 			entry.is_expanded = true
 			table.insert(self.entries, insert_index, entry)
 
-			if entry:IsHeader() or entry:IsSubHeader() then
+			if entry:IsCategory() or entry:IsHeader() or entry:IsSubHeader() then
 				insert_index = MainPanel.current_tab:ExpandListEntry(entry, expand_mode)
 			else
 				MainPanel.current_tab:SaveListEntryState(entry, entry_expanded)
@@ -451,10 +518,33 @@ function private.InitializeListFrame()
 	-- Filter flag data and functions for ListFrame:Initialize()
 	-- ----------------------------------------------------------------------------
 		function ListFrame:Initialize(expand_mode)
+            ReleaseAcquireTooltip()
+            private.UpdateGuideTabAvailability()
+            private.UpdateGuidePresentation(MainPanel)
 			for i = 1, #self.entries do
 				private.ReleaseTable(self.entries[i])
 			end
 			table.wipe(self.entries)
+
+            local selectedTab = MainPanel.tabs[addon.db.profile.current_tab]
+            if selectedTab and selectedTab.kind == "guide" then
+                MainPanel.current_tab = selectedTab
+                selectedTab:GetProfessionExpansionState(private.CurrentProfession)
+                selectedTab:Initialize(expand_mode)
+                if selectedTab["expand_button_" .. private.CurrentProfession:LocalizedName()] then
+                    MainPanel.expand_button:Expand(selectedTab)
+                else
+                    MainPanel.expand_button:Contract(selectedTab)
+                end
+                SpellTooltip:Hide()
+                self.selected_entry = nil
+                local completed, total = private.GuideProgress(private.CurrentProfession)
+                MainPanel.progress_bar:SetMinMaxValues(0, math.max(1, total))
+                MainPanel.progress_bar:SetValue(completed)
+                MainPanel.progress_bar.text:SetFormattedText("Guide - %d/%d steps - %.0f%%", completed, total,
+                    total > 0 and completed / total * 100 or 0)
+                return
+            end
 
 			-- ----------------------------------------------------------------------------
 			-- Update recipe filters.
@@ -468,7 +558,7 @@ function private.InitializeListFrame()
 				local can_display = false
 				recipe:RemoveState("VISIBLE")
 
-				if not recipe:HasState("IGNORED") then
+				if not recipe:HasState(MainPanel.is_linked and "LINKED_IGNORED" or "IGNORED") then
 					recipes_total = recipes_total + 1
 
 					local is_known
@@ -532,10 +622,8 @@ function private.InitializeListFrame()
             local currentTab = MainPanel.tabs[addon.db.profile.current_tab]
             local professionExpandButton = currentTab["expand_button_" .. private.CurrentProfession:LocalizedName()]
 
-			if acquire_tip and acquire_tip.Hide then
-				acquire_tip:Hide()
-			end
-			SpellTooltip:Hide()
+			ReleaseAcquireTooltip()
+		SpellTooltip:Hide()
 			self.selected_entry = nil
 
 			if professionExpandButton then
@@ -577,17 +665,32 @@ function private.InitializeListFrame()
 	function ListFrame:ClearLines()
 		for index = 1, NUM_RECIPE_LINES do
 			local entry = self.ListEntryButtons[index]
-			entry.text:SetFontObject(addon.db.profile.frameopts.small_list_font and "GameFontNormalSmall" or "GameFontNormal")
+			entry.text:SetFontObject(addon.db.profile.frameopts.small_list_font and "GameFontHighlightSmall" or "GameFontHighlight_NoShadow")
             entry.text:SetJustifyH("LEFT")
             entry:SetText("")
             entry:SetScript("OnEnter", nil)
             entry:SetScript("OnLeave", nil)
             entry:SetScript("OnClick", nil)
             entry:SetWidth(LIST_ENTRY_WIDTH)
+            entry:ClearAllPoints()
+            entry:SetPoint("LEFT", entry.stateButton, "RIGHT", -3, 0)
+            entry.text:Show()
+            if entry.categoryHeader then entry.categoryHeader:Hide() end
+            entry.highlight_texture:SetAtlas("Professions_Recipe_Hover")
+            entry.highlight_texture:SetAlpha(1)
             entry:Disable()
             entry.emphasis_texture:Hide()
             entry.selected_texture:Hide()
             entry.titleBackgroundTexture:Hide()
+            entry.guide_status_icon:Hide()
+            entry.guide_status_icon:SetVertexColor(1, 1, 1)
+            entry.guide_progress:Hide()
+            entry.text:ClearAllPoints()
+            entry.text:SetPoint("LEFT", entry, "LEFT", 7, 0)
+            entry.text:SetPoint("RIGHT", entry, "RIGHT", -7, 0)
+			for _, slice in ipairs(entry.titleBackgroundSlices) do
+				slice:SetVertexColor(1, 1, 1)
+			end
             entry.button = nil
             entry.entry_index = 0
 
@@ -599,7 +702,25 @@ function private.InitializeListFrame()
 		end
 	end
 
+	local emptyPopupName, popupSearch, popupProfession
+
+	local function ShowEmptyListPopup(name)
+		if emptyPopupName == name then
+			return
+		end
+		private.DismissDialogs()
+		emptyPopupName = name
+		_G.StaticPopup_Show(name)
+	end
+
 	function ListFrame:Update(expand_mode, refresh)
+		local searchText = MainPanel.search_editbox:GetText()
+		if popupSearch ~= searchText or popupProfession ~= private.CurrentProfession then
+			private.DismissDialogs()
+			emptyPopupName = nil
+			popupSearch = searchText
+			popupProfession = private.CurrentProfession
+		end
         if refresh then
             local writeIndex = 1
             for readIndex = 1, #self.entries do
@@ -648,18 +769,20 @@ function private.InitializeListFrame()
 				-- Do not show any popup when nothing has been scanned; scanning starts automatically
 			elseif player.recipes_known == player.recipes_total then
 				if showpopup then
-					Dialog:Spawn("ARL_AllKnown")
+					ShowEmptyListPopup("ARL_AllKnown")
 				end
 			elseif (player.recipes_total_filtered - player.recipes_known_filtered) == 0 then
 				if showpopup then
-					Dialog:Spawn("ARL_AllFiltered")
+					ShowEmptyListPopup("ARL_AllFiltered")
 				end
 			elseif player.excluded_recipes_unknown ~= 0 then
 				if showpopup then
-					Dialog:Spawn("ARL_AllExcluded")
+					ShowEmptyListPopup("ARL_AllExcluded")
 				end
 			elseif editbox_text ~= "" and editbox_text ~= _G.SEARCH then
-				Dialog:Spawn("ARL_SearchFiltered")
+				if not MainPanel.search_editbox:HasFocus() then
+					ShowEmptyListPopup("ARL_SearchFiltered")
+				end
 			else
 				addon:Print(L["NO_DISPLAY"])
 			end
@@ -667,51 +790,105 @@ function private.InitializeListFrame()
 		end
 		local offset = 0
 
+		emptyPopupName = nil
 		private.DismissDialogs()
 
 		MainPanel.expand_button:SetNormalFontObject("GameFontNormalSmall")
 		MainPanel.expand_button:Enable()
 
-		if listEntryCount <= NUM_RECIPE_LINES then
+		local currentTab = MainPanel.current_tab
+		if currentTab.kind == "acquisition" or currentTab.kind == "location" then
+			-- Only source categories get larger rows and extra separation. Count
+			-- visible entries by their actual height so compact recipes scroll correctly.
+			local availableHeight = self:GetHeight() - 7
+			local function RowMetrics(entry, first)
+				local category = currentTab.kind == "acquisition" and entry:IsHeader() and entry.acquisitionCount
+					or currentTab.kind == "location" and entry:IsCategory()
+				return category and 25 or 20, first and 0 or category and currentTab.kind == "acquisition" and 6 or 2
+			end
+			local function CountRows(start)
+				local used, count = 0, 0
+				for index = start, math.min(listEntryCount, start + NUM_RECIPE_LINES - 1) do
+					local height, gap = RowMetrics(self.entries[index], index == start)
+					if used + height + gap > availableHeight then break end
+					used, count = used + height + gap, count + 1
+				end
+				return count
+			end
+			local lastStart = listEntryCount
+			while lastStart > 1 and CountRows(lastStart - 1) == listEntryCount - lastStart + 2 do
+				lastStart = lastStart - 1
+			end
+			local maxScrollValue = lastStart - 1
+			offset = maxScrollValue > 0 and math.max(0, math.min(currentTab:ScrollValue(private.CurrentProfession) or 0, maxScrollValue)) or 0
+			visibleLines = CountRows(offset + 1)
+			self.visibleLines = visibleLines
+			self.scroll_bar:SetMinMaxValues(0, maxScrollValue)
+			self.scroll_bar:SetValue(offset)
+			self.scroll_bar:SetShown(maxScrollValue > 0)
+			for index, container in ipairs(ListEntryButtonContainers) do
+				local entry = self.entries[offset + index]
+				local height, gap = 20, 2
+				if entry then height, gap = RowMetrics(entry, index == 1) end
+				container:ClearAllPoints()
+				if index == 1 then
+					container:SetPoint("TOPLEFT", self, "TOPLEFT", 6, -4)
+				else
+					container:SetPoint("TOPLEFT", ListEntryButtonContainers[index - 1], "BOTTOMLEFT", 0, -gap)
+				end
+				container:SetHeight(height)
+				container:SetShown(index <= visibleLines)
+				self.ListEntryButtons[index]:SetHeight(height)
+				self.ListEntryButtons[index].stateButton:SetHeight(height)
+			end
+		elseif listEntryCount <= visibleLines then
+			self.scroll_bar:SetMinMaxValues(0, 0)
+			self.scroll_bar:SetValue(0)
 			self.scroll_bar:Hide()
 		else
-            local maxScrollValue = listEntryCount - NUM_RECIPE_LINES
-            self.scroll_bar:SetMinMaxValues(0, math.max(0, maxScrollValue))
-
-            local currentTab = MainPanel.current_tab
-            local scrollValue = math.max(0, math.min(currentTab:ScrollValue(private.CurrentProfession) or 0, maxScrollValue))
-            self.scroll_bar:SetValue(scrollValue)
-            offset = scrollValue
-
+			local maxScrollValue = listEntryCount - visibleLines
+			self.scroll_bar:SetMinMaxValues(0, math.max(0, maxScrollValue))
+			local scrollValue = math.max(0, math.min(currentTab:ScrollValue(private.CurrentProfession) or 0, maxScrollValue))
+			self.scroll_bar:SetValue(scrollValue)
+			offset = scrollValue
 			self.scroll_bar:Show()
 		end
 		self:ClearLines()
+		if currentTab.kind == "guide" then
+			for index = 2, visibleLines do
+				local previousEntry = self.entries[offset + index - 1]
+				local gap = previousEntry and previousEntry.guideShopping and 8 or 2
+				local container = ListEntryButtonContainers[index]
+				container:ClearAllPoints()
+				container:SetPoint("TOPLEFT", ListEntryButtonContainers[index - 1], "BOTTOMLEFT", 0, -gap)
+			end
+		end
 
 		local buttonIndex = 1
 		local listEntryIndex = math.floor(buttonIndex + offset)
 
 		-- Populate the buttons with new values
-		while buttonIndex <= NUM_RECIPE_LINES and listEntryIndex <= listEntryCount do
+		while buttonIndex <= visibleLines and listEntryIndex <= listEntryCount do
             local listEntryButton = self.ListEntryButtons[buttonIndex]
 			local listEntry = self.entries[listEntryIndex]
             local stateButton = listEntryButton.stateButton
             local isEntry = listEntry:IsEntry()
 			local isSubentry = not isEntry and listEntry:IsSubEntry()
+			local isCategory = listEntry:IsCategory()
 			local isHeader = not isSubentry and listEntry:IsHeader()
 			local isSubheader = not isHeader and listEntry:IsSubHeader()
             local isTitle = not isSubheader and listEntry:IsTitle()
 
-			if isHeader or isSubheader then
+			if (isCategory or isHeader or isSubheader) and not listEntry.guideShopping then
 				stateButton:Show()
 
-				if listEntry.is_expanded then
-					stateButton:SetNormalTexture([[Interface\MINIMAP\UI-Minimap-ZoomOutButton-Up]])
-					stateButton:SetPushedTexture([[Interface\MINIMAP\UI-Minimap-ZoomOutButton-Down]])
-				else
-					stateButton:SetNormalTexture([[Interface\MINIMAP\UI-Minimap-ZoomInButton-Up]])
-					stateButton:SetPushedTexture([[Interface\MINIMAP\UI-Minimap-ZoomInButton-Down]])
+				local atlas = listEntry.is_expanded and "Professions-recipe-header-collapse" or "Professions-recipe-header-expand"
+				if not stateButton.icon then
+					stateButton.icon = stateButton:CreateTexture(nil, "ARTWORK")
+					stateButton.icon:SetPoint("CENTER")
 				end
-				stateButton:SetHighlightTexture([[Interface\MINIMAP\UI-Minimap-ZoomButton-Highlight]])
+				stateButton.icon:SetAtlas(atlas, true)
+				stateButton.icon:SetVertexColor(1, 1, 1)
 				stateButton.entry_index = listEntryIndex
 				stateButton:Enable()
 			else
@@ -723,19 +900,172 @@ function private.InitializeListFrame()
 				listEntryButton.selected_texture:Show()
 			end
 
-            if isTitle then
+            if isTitle or isCategory or isHeader or isSubheader then
                 listEntryButton.titleBackgroundTexture:Show()
-                listEntryButton.text:SetJustifyH("CENTER")
-                listEntryButton.text:SetFontObject("QuestFont")
+                listEntryButton.text:SetJustifyH("LEFT")
+                listEntryButton.text:SetFontObject("GameFontNormal_NoShadow")
             elseif listEntry:IsEmphasized() then
                 listEntryButton.emphasis_texture:Show()
 			end
 
-			if isTitle or isHeader or isEntry then
+			if isTitle or isCategory or isHeader or isEntry then
 				stateButton:SetPoint("TOPLEFT", stateButton.container, "TOPLEFT", 0, 0)
             elseif isSubheader or isSubentry then
                 stateButton:SetPoint("TOPLEFT", stateButton.container, "TOPLEFT", 15, 0)
                 listEntryButton:SetWidth(LIST_ENTRY_WIDTH - 15)
+			end
+
+			-- Reuse the native profession header art and consistent indentation
+			-- across all three views, without changing their entry hierarchies.
+			local currentTab = MainPanel.current_tab
+			if currentTab.kind == "location" then
+				local inset = 0
+				local red, green, blue = 1, 1, 1
+				if isTitle then
+					if listEntry.category_level == "world" then
+						red, green, blue = 0.95, 0.73, 0.32
+						listEntryButton.text:SetFontObject("GameFontNormalLarge")
+					else
+						inset = 8
+						red, green, blue = 0.60, 0.78, 0.96
+						listEntryButton.text:SetFontObject("GameFontNormal")
+					end
+				elseif isCategory then
+					inset = 8
+					red, green, blue = 0.60, 0.78, 0.96
+					listEntryButton.text:SetFontObject("GameFontNormal")
+					stateButton.icon:SetVertexColor(0.83, 0.92, 1)
+				elseif isHeader then
+					inset = 12
+					red, green, blue = 0.64, 0.53, 0.37
+					stateButton.icon:SetVertexColor(1, 0.78, 0.35)
+				elseif isSubheader or isEntry then
+					inset = 28
+					listEntryButton.titleBackgroundTexture:Hide()
+					if isSubheader then
+						stateButton.icon:SetVertexColor(0.88, 0.82, 0.70)
+					end
+				elseif isSubentry then
+					inset = 42
+				end
+				if isTitle or isCategory or isHeader then
+					for _, slice in ipairs(listEntryButton.titleBackgroundSlices) do
+						slice:SetVertexColor(red, green, blue)
+					end
+				end
+				stateButton:ClearAllPoints()
+				stateButton:SetPoint("TOPLEFT", stateButton.container, "TOPLEFT", inset, 0)
+				listEntryButton:SetWidth(LIST_ENTRY_WIDTH - inset)
+			elseif currentTab.kind == "acquisition" then
+				local inset = 12
+				if isHeader then
+
+					for _, slice in ipairs(listEntryButton.titleBackgroundSlices) do
+						slice:SetVertexColor(0.64, 0.53, 0.37)
+					end
+					stateButton.icon:SetVertexColor(1, 0.78, 0.35)
+				elseif isSubheader or isEntry then
+					inset = 28
+					listEntryButton.titleBackgroundTexture:Hide()
+					if isSubheader then
+						stateButton.icon:SetVertexColor(0.88, 0.82, 0.70)
+					end
+				elseif isSubentry then
+					inset = 42
+				end
+				stateButton:ClearAllPoints()
+				stateButton:SetPoint("TOPLEFT", stateButton.container, "TOPLEFT", inset, 0)
+				listEntryButton:SetWidth(LIST_ENTRY_WIDTH - inset)
+			elseif currentTab.kind == "recipes" then
+				local inset = 10
+				if isHeader then
+					listEntryButton.titleBackgroundTexture:Hide()
+					stateButton.icon:SetVertexColor(0.88, 0.82, 0.70)
+				elseif isEntry then
+					inset = 28
+				end
+				stateButton:ClearAllPoints()
+				stateButton:SetPoint("TOPLEFT", stateButton.container, "TOPLEFT", inset, 0)
+				listEntryButton:SetWidth(LIST_ENTRY_WIDTH - inset)
+			end
+            if currentTab.kind == "guide" then
+                local inset = listEntry.guideStep and 20 or 0
+                stateButton:ClearAllPoints()
+                stateButton:SetPoint("TOPLEFT", stateButton.container, "TOPLEFT", inset, 0)
+                listEntryButton:SetWidth(LIST_ENTRY_WIDTH - inset)
+                listEntryButton.text:SetFontObject(listEntry.guideStep and "GameFontHighlight" or "GameFontNormal")
+                if listEntry.guideChapter and not listEntry.guideStep then
+                    listEntryButton.guide_progress:SetText(listEntry.guideChapterProgress)
+                    listEntryButton.guide_progress:Show()
+                    listEntryButton.text:ClearAllPoints()
+                    listEntryButton.text:SetPoint("LEFT", listEntryButton, "LEFT", 7, 0)
+                    listEntryButton.text:SetPoint("RIGHT", listEntryButton, "RIGHT", -52, 0)
+                end
+                if listEntry.guideShopping or listEntry.guideDone or listEntry.guideNext then
+                    local icon = listEntryButton.guide_status_icon
+                    icon:SetTexture(listEntry.guideShopping and [[Interface\Icons\INV_Misc_Bag_08]]
+                        or listEntry.guideDone and [[Interface\Buttons\UI-CheckBox-Check]]
+                        or [[Interface\Buttons\UI-SpellbookIcon-NextPage-Up]])
+                    if listEntry.guideDone then icon:SetVertexColor(.3, 1, .3) end
+                    icon:Show()
+                    listEntryButton.text:ClearAllPoints()
+                    listEntryButton.text:SetPoint("LEFT", listEntryButton, "LEFT", 29, 0)
+                    listEntryButton.text:SetPoint("RIGHT", listEntryButton, "RIGHT", -7, 0)
+                end
+                if listEntry.guideNext then listEntryButton.emphasis_texture:Show() end
+            end
+			local isAcquisitionCategory = currentTab.kind == "acquisition" and isHeader and listEntry.acquisitionCount
+			if (currentTab.kind == "location" and isCategory) or isAcquisitionCategory then
+				-- The profession list uses ListHeaderVisualTemplate for its categories.
+				-- Keep Ackis's row and expansion handler, using the native control as art.
+				local header = listEntryButton.categoryHeader
+				if not header then
+					header = _G.CreateFrame("Button", nil, listEntryButton, "ListHeaderVisualTemplate")
+					header:SetAllPoints(listEntryButton)
+					header:EnableMouse(false)
+					header.CollapseButton:EnableMouse(false)
+					header:SetTitleColor(false, _G.NORMAL_FONT_COLOR)
+					header:SetTitleColor(true, _G.HIGHLIGHT_FONT_COLOR)
+					header.Count = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+					header.Count:SetPoint("RIGHT", header, "RIGHT", -8, 0)
+					header.Count:SetWidth(40)
+					header.Count:SetJustifyH("RIGHT")
+					listEntryButton.categoryHeader = header
+				end
+				listEntryButton:ClearAllPoints()
+				listEntryButton:SetPoint("LEFT", stateButton.container, "LEFT", 0, 0)
+				listEntryButton:SetWidth(LIST_ENTRY_WIDTH)
+				listEntryButton.titleBackgroundTexture:Hide()
+				listEntryButton.text:Hide()
+				stateButton:Hide()
+				header.CollapseButton:ClearAllPoints()
+				local label = header:GetTitleRegion()
+				label:ClearAllPoints()
+				if isAcquisitionCategory then
+					local categoryWidth = LIST_ENTRY_WIDTH - 8
+					listEntryButton:ClearAllPoints()
+					listEntryButton:SetPoint("LEFT", stateButton.container, "LEFT", (LISTFRAME_WIDTH - categoryWidth) / 2 - 6, 0)
+					listEntryButton:SetWidth(categoryWidth)
+					label:SetFontObject("GameFontNormal")
+					header.CollapseButton:SetPoint("LEFT", header, "LEFT", 6, 0)
+					label:SetPoint("LEFT", header, "LEFT", 52, 0)
+					label:SetPoint("RIGHT", header, "RIGHT", -52, 0)
+					label:SetJustifyH("CENTER")
+					header.Count:SetText(("(%d)"):format(listEntry.acquisitionCount))
+					header.Count:Show()
+				else
+					label:SetFontObject("Game15Font_Shadow")
+					header.CollapseButton:SetPoint("RIGHT", header, "RIGHT", -6, 0)
+					label:SetPoint("LEFT", header, "LEFT", 8, 0)
+					label:SetPoint("RIGHT", header.CollapseButton, "LEFT", -4, 0)
+					label:SetJustifyH("LEFT")
+					header.Count:Hide()
+				end
+				header:SetHeaderText(listEntry:Text())
+				header.CollapseButton:UpdateCollapsedState(not listEntry.is_expanded)
+				header:Show()
+				listEntryButton.highlight_texture:SetAtlas("common-button-list-collapseExpand")
+				listEntryButton.highlight_texture:SetAlpha(0.4)
 			end
 			listEntry.button = listEntryButton
 			listEntryButton.entry_index = listEntryIndex
@@ -763,47 +1093,120 @@ end	-- InitializeListFrame()
 -- ----------------------------------------------------------------------------
 -- Tooltip functions and data.
 -- ----------------------------------------------------------------------------
--- Font Objects needed for acquire_tip
-local narrowFont
-local normalFont
-
+-- Use the native tooltip font for the same text size as the previous renderer.
 do
-	local LSM3 = LibStub("LibSharedMedia-3.0", true)
+	local function InitializeTooltipScrollBar(tooltip)
+		if tooltip.Slider then return end
+		-- Supply QTip's pixel-offset interface through Forever's native controller.
+		-- The library retains ownership of sizing, visibility and pool cleanup.
+		local padding = QTip.TooltipManager.PixelSize.CellPadding
+		local bar = _G.CreateFrame("EventFrame", nil, tooltip, "MinimalScrollBar")
+		bar:SetPoint("TOPRIGHT", tooltip, "TOPRIGHT", -padding, -padding)
+		bar:SetPoint("BOTTOMRIGHT", tooltip, "BOTTOMRIGHT", -padding, padding)
+		bar:SetWidth(8)
+		bar:SetInterpolateScroll(false)
+		bar:Init(1, 1)
+		bar.Track.Begin:Hide()
+		bar.Track.Middle:Hide()
+		bar.Track.End:Hide()
 
-	if LSM3 then
-		narrowFont = LSM3:Fetch(LSM3.MediaType.FONT, "Arial Narrow")
-		normalFont = LSM3:Fetch(LSM3.MediaType.FONT, "Friz Quadrata TT")
-	else
-		-- Fix for font issues on koKR
-		if _G.GetLocale() == "koKR" then
-			narrowFont = "Fonts\\2002.TTF"
-			normalFont = "Fonts\\2002.TTF"
-		else
-			narrowFont = "Fonts\\ARIALN.TTF"
-			normalFont = "Fonts\\FRIZQT__.TTF"
+		local minimum, maximum, value = 0, 0, 0
+		local syncing = false
+		function bar:GetMinMaxValues() return minimum, maximum end
+		function bar:GetValue() return value end
+		function bar:SetValue(offset)
+			value = math.max(minimum, math.min(maximum, offset))
+			tooltip.ScrollFrame:SetVerticalScroll(value)
+			syncing = true
+			self:SetScrollPercentage(maximum > minimum and (value - minimum) / (maximum - minimum) or 0, true)
+			syncing = false
 		end
+		function bar:SetMinMaxValues(low, high)
+			minimum, maximum = low, math.max(low, high)
+			local visible = math.max(1, tooltip:GetHeight() - 2 * padding)
+			local range = maximum - minimum
+			-- Keep the thumb compact even when only a few source rows overflow.
+			self:SetVisibleExtentPercentage(math.min(0.2, visible / (visible + range)))
+			self:SetPanExtentPercentage(range > 0 and math.min(1, tooltip.ScrollStep / range) or 1)
+			self:SetValue(value)
+		end
+		bar:RegisterCallback(_G.ScrollBarMixin.Event.OnScroll, function(_, percentage)
+			if syncing then return end
+			value = minimum + percentage * (maximum - minimum)
+			tooltip.ScrollFrame:SetVerticalScroll(value)
+		end, bar)
+		bar:EnableMouseWheel(true)
+		bar:SetScript("OnMouseWheel", function(_, delta)
+			bar:SetValue(value - delta * tooltip.ScrollStep)
+		end)
+		bar:Hide()
+		tooltip.Slider = bar
 	end
-	local narrowFontObj = _G.CreateFont(("%s%s"):format(private.addon_name, "narrowFontObj"))
-	local normalFontObj = _G.CreateFont(("%s%s"):format(private.addon_name, "normalFontObj"))
+
+	local function AddSectionSeparator()
+		-- Reserve space around a separate line so fractional scales and reused
+		-- rows cannot hide the divider beneath the adjacent text.
+		local row = acquire_tip:AddSeparator(8, 0, 0, 0, 0)
+		local line = row.ackisSeparator
+		if not line then
+			line = row:CreateTexture(nil, "OVERLAY")
+			-- Absolute edges are snapped after layout; don't round the offsets twice.
+			line:SetRoundLayoutToNearestPixel(false)
+			line:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -4)
+			line:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, -4)
+			line:SetColorTexture(0.75, 0.6, 0.35, 0.65)
+			row.ackisSeparator = line
+		end
+		line.ackisRow = row
+		line.ackisAlignedTop = nil
+		-- UI units also depend on physical screen resolution, not just UI scale.
+		line:SetHeight(_G.PixelUtil.GetPixelToUIUnitFactor() / acquire_tip:GetEffectiveScale())
+		line:Show()
+		separatorTextures[#separatorTextures + 1] = line
+	end
 
 	-- I want to do a bit more comprehensive tooltip processing. Things like changing font sizes,
 	-- adding padding to the left hand side, and using better color handling. So... this function
 	-- will do that for me.
 	--    leftPad,            -- number of times to pad two spaces on left side
 	--    textSize,           -- add to or subtract from addon.db.profile.tooltip.acquire_fontsize to get fontsize
-	--    useNarrowFont,      -- if 1, use ARIALN instead of FRITZQ
+	--    useNarrowFont,      -- retained for acquire-data callback compatibility
 	--    leftText,           -- left-hand string
 	--    leftColor,          -- color values for left-hand side
 	--    rightText,          -- if present, this is the right-hand string
 	--    rightColor)         -- if present, color vaues for right-hand side
 	local function ttAdd(leftPad, textSize, useNarrowFont, leftText, leftColor, rightText, rightColor)
+		local fontSize = (addon.db.profile.tooltip.acquire_fontsize or 11) + textSize
+		local fontObject = _G.GameTooltipText
 		leftText = ("    "):rep(leftPad or 0) .. (leftText or "")
-		local r1, g1, b1 = leftColor.r, leftColor.g, leftColor.b
+		local width = math.ceil(fontSize * 37.5)
+		local row = acquire_tip:AddRow()
+		local left = row:GetCell(1)
+		left:SetJustifyH("LEFT")
+		left:SetRightPadding(0)
 		if rightText then
-			local r2, g2, b2 = rightColor.r, rightColor.g, rightColor.b
-			acquire_tip:AddDoubleLine(leftText, tostring(rightText), r1, g1, b1, r2, g2, b2)
+			width = width / 2
+			left:SetLeftPadding(0)
+			left:SetMaxWidth(width)
+			if fontObject then left:SetFontObject(fontObject) end
+			left:SetTextColor(leftColor.r, leftColor.g, leftColor.b)
+			left:SetText(leftText)
+
+			local right = row:GetCell(2)
+			right:SetJustifyH("RIGHT")
+			right:SetLeftPadding(0)
+			right:SetRightPadding(0)
+			right:SetMaxWidth(width)
+			if fontObject then right:SetFontObject(fontObject) end
+			right:SetTextColor(rightColor.r, rightColor.g, rightColor.b)
+			right:SetText(tostring(rightText))
 		else
-			acquire_tip:AddLine(leftText, r1, g1, b1)
+			left:SetColSpan(2)
+			left:SetLeftPadding(2)
+			left:SetMaxWidth(width)
+			if fontObject then left:SetFontObject(fontObject) end
+			left:SetTextColor(leftColor.r, leftColor.g, leftColor.b)
+			left:SetText(leftText)
 		end
 	end
 
@@ -812,24 +1215,46 @@ do
 	-- * The addline_func paramater must be a function which accepts the same
 	-- * arguments as ARL's ttAdd function.
 	-- ----------------------------------------------------------------------------
-	function addon:DisplayAcquireData(recipeSpellID, acquireTypeID, localizedLocationName, addline_func)
+	function addon:DisplayAcquireData(recipeSpellID, acquireTypeID, localizedLocationName, addline_func, separator_func)
 		local recipe = private.recipe_list[recipeSpellID]
 		if not recipe then
 			return
 		end
 
-        for acquireType, acquireData in recipe:AcquirePairs() do
+		local sources = {}
+		for acquireType, acquireData in recipe:AcquirePairs() do
 			if not acquireTypeID or acquireType:ID() == acquireTypeID then
-				local count = 0
-
-				for identifier, info in pairs(acquireData) do
-					acquireType:InsertTooltipText(recipe, identifier, localizedLocationName, info, addline_func)
-					count = count + 1
+				sources[#sources + 1] = {kind = acquireType, data = acquireData}
+			end
+		end
+		table.sort(sources, function(a, b) return a.kind:ID() < b.kind:ID() end)
+		local hasDisplayedSource = false
+		for _, source in ipairs(sources) do
+			local addSourceLine = addline_func
+			if separator_func then
+				local sourceStarted = false
+				addSourceLine = function(...)
+					if not sourceStarted then
+						if hasDisplayedSource then separator_func() end
+						sourceStarted = true
+						hasDisplayedSource = true
+					end
+					return addline_func(...)
 				end
-
-				if count == 0 then
-					acquireType:InsertTooltipText(recipe, nil, localizedLocationName, nil, addline_func)
-				end
+			end
+			local identifiers = {}
+			for identifier in pairs(source.data) do identifiers[#identifiers + 1] = identifier end
+			table.sort(identifiers, function(a, b)
+				local entityA, entityB = source.kind:GetEntity(a), source.kind:GetEntity(b)
+				local nameA, nameB = tostring(entityA and entityA.name or a), tostring(entityB and entityB.name or b)
+				if nameA == nameB then return tostring(a) < tostring(b) end
+				return nameA < nameB
+			end)
+			for _, identifier in ipairs(identifiers) do
+				source.kind:InsertTooltipText(recipe, identifier, localizedLocationName, source.data[identifier], addSourceLine)
+			end
+			if #identifiers == 0 then
+				source.kind:InsertTooltipText(recipe, nil, localizedLocationName, nil, addSourceLine)
 			end
 		end
 	end
@@ -837,22 +1262,29 @@ do
 	-- ----------------------------------------------------------------------------
 	-- Main tooltip function.
 	-- ----------------------------------------------------------------------------
-	local function InitializeTooltips(recipe)
-		local spellTooltipAnchor = addon.db.profile.spelltooltiplocation
+	local function InitializeTooltips()
 		local acquireTooltipAnchor = addon.db.profile.acquiretooltiplocation
-		local spellHyperlink = _G.GetSpellLink(recipe:SpellID())
 		local MainPanel = addon.Frame
-	local spellTooltipOwner
 
 		if acquireTooltipAnchor == _G.OFF then
-			if acquire_tip and acquire_tip.Hide then acquire_tip:Hide() end
-			spellTooltipOwner = MainPanel
+			ReleaseAcquireTooltip()
 		else
-			acquire_tip = AcquireTooltip
-			acquire_tip:SetOwner(MainPanel, "ANCHOR_NONE")
+			acquire_tip = QTip:AcquireTooltip(private.addon_name .. " Tooltip", 2, "LEFT", "LEFT")
 			acquire_tip:ClearAllPoints()
-			acquire_tip:ClearLines()
+			ClearTooltipSeparators()
+			acquire_tip:Clear()
+			acquire_tip:SetCellMarginV(2)
+			InitializeTooltipScrollBar(acquire_tip)
 			acquire_tip:SetScale(addon.db.profile.tooltip.scale or 1)
+			if not acquire_tip.ackisSeparatorAligner then
+				local aligner = _G.CreateFrame("Frame", nil, acquire_tip)
+				aligner:SetScript("OnUpdate", AlignTooltipSeparators)
+				acquire_tip.ackisSeparatorAligner = aligner
+			end
+			acquire_tip.ackisSeparatorAligner:Show()
+			acquire_tip:SetClampedToScreen(true)
+			if acquire_tip.Slider then acquire_tip.Slider:SetValue(0) end
+			acquire_tip.ScrollFrame:SetVerticalScroll(0)
 
 			if _G.TipTac and _G.TipTac.AddModifiedTip then
 				_G.TipTac:AddModifiedTip(acquire_tip, true)
@@ -872,13 +1304,20 @@ do
 				acquire_tip:SetPoint("BOTTOMLEFT", _G.UIParent, "BOTTOMLEFT", x / uiscale, y / uiscale)
 			end
 
-			spellTooltipOwner = acquire_tip
 		end
+	end
 
-		-- If we have the spell link tooltip, link it to the acquire tooltip.
-		if spellTooltipAnchor == _G.OFF then
+	local function ShowProductTooltip(recipe, showProduct)
+		local spellTooltipAnchor = addon.db.profile.spelltooltiplocation
+		local spellTooltipOwner = acquire_tip or addon.Frame
+
+		-- The second tooltip is an explicit product preview, never a hover tip.
+		if not showProduct then
 			SpellTooltip:Hide()
-		elseif spellHyperlink then
+		else
+            if not spellTooltipAnchor or spellTooltipAnchor == _G.OFF then
+                spellTooltipAnchor = "Right"
+            end
             SpellTooltip:SetOwner(spellTooltipOwner, "ANCHOR_NONE")
             SpellTooltip:ClearAllPoints()
 
@@ -898,14 +1337,9 @@ do
                 SpellTooltip.tiptac = true
             end
 
-            -- Set the spell tooltip's scale, and copy its other values from GameTooltip so AddOns which modify it will work.
---            SpellTooltip:SetBackdrop(nil)
---            SpellTooltip:SetBackdrop(_G.GameTooltip:GetBackdrop() or nil)
---            SpellTooltip:SetBackdropColor(_G.GameTooltip:GetBackdropColor() or nil)
---            SpellTooltip:SetBackdropBorderColor(_G.GameTooltip:GetBackdropBorderColor() or nil)
---            SpellTooltip:SetScale(addon.db.profile.tooltip.scale)
- --           SpellTooltip:SetClampedToScreen(true)
- --           SpellTooltip:SetHyperlink(spellHyperlink)
+            SpellTooltip:SetScale(addon.db.profile.tooltip.scale or 1)
+            SpellTooltip:SetClampedToScreen(true)
+            SpellTooltip:SetHyperlink(CraftedItemTooltipLink(recipe))
             SpellTooltip:Show()
 		end
 	end
@@ -920,31 +1354,42 @@ do
 		BIND_ON_PICKUP = L["RecipeBOPFilter"],
 	}
 
-	function ListItem_ShowTooltip(listEntry)
+	function ListItem_ShowTooltip(listEntry, showProduct)
 		if not listEntry then
 			return
 		end
+
+        if listEntry.guideChapter or listEntry.guideShopping then
+            ReleaseAcquireTooltip()
+            private.ShowGuideEntryTooltip(listEntry)
+            return
+        end
 		local recipe = listEntry.recipe
 
 		if not recipe then
 			return
 		end
-		InitializeTooltips(recipe)
+		InitializeTooltips()
 
-	if not acquire_tip then
+		if not acquire_tip then
+			ShowProductTooltip(recipe, showProduct)
 			return
 		end
-	acquire_tip:ClearLines()
 	local name = recipe:LocalizedName()
 	--
-	local r,g,b = _G.GetItemQualityColor(recipe:QualityID())
-	acquire_tip:AddLine(name, r, g, b)
-
-		--
-		local recipe_item_texture = recipe.crafted_item_id and select(10, _G.GetItemInfo(recipe.crafted_item_id))
-
+	local r,g,b = private.GetItemQualityColor(recipe:QualityID())
+		local recipe_item_texture = recipe.crafted_item_id and select(10, private.GetItemInfo(recipe.crafted_item_id))
+		local header = acquire_tip:AddHeadingRow():GetCell(1)
+		header:SetColSpan(2)
+		header:SetJustifyH("CENTER")
+		header:SetTextColor(r, g, b)
+		header:SetText(name)
 		if recipe_item_texture then
-			acquire_tip:AddLine(("|T%s:30:30|t"):format(recipe_item_texture))
+			local icon = acquire_tip:AddHeadingRow():GetCell(1)
+			icon:SetColSpan(2)
+			icon:SetJustifyH("CENTER")
+			icon:SetTextColor(1, 1, 1)
+			icon:SetText(("|T%s:30:30|t"):format(recipe_item_texture))
 		end
 
 		if addon.db.profile.exclusionlist[recipe:SpellID()] then
@@ -957,6 +1402,8 @@ do
 
 		if recipe.skill_level > skill_level then
 			color_type = "impossible"
+		elseif recipe.skill_thresholds_unknown then
+			color_type = "unknown"
 		elseif skill_level >= recipe.trivial_level then
 			color_type = "trivial"
 		elseif skill_level >= recipe.easy_level then
@@ -969,50 +1416,72 @@ do
 			color_type = "trivial"
 		end
 		ttAdd(0, -1, false, ("%s:"):format(_G.SKILL_LEVEL), BASIC_COLORS.normal, recipe.skill_level, private.DIFFICULTY_COLORS[color_type])
-	acquire_tip:AddLine(" ")
+
+		if recipe.skill_thresholds_unknown then
+			ttAdd(0, -1, true, L["SKILL_THRESHOLDS_UNAVAILABLE"], BASIC_COLORS.white)
+		end
 
 		local _, recipe_item_binding = recipe:RecipeItem()
-
-		if recipe_item_binding then
-			ttAdd(0, -1, true, RECIPE_BINDING_TYPES[recipe_item_binding], BASIC_COLORS.normal)
+		local _, crafted_item_binding = recipe:CraftedItem()
+		local bindings = {}
+		if recipe_item_binding then bindings[#bindings + 1] = RECIPE_BINDING_TYPES[recipe_item_binding] end
+		if crafted_item_binding then bindings[#bindings + 1] = ITEM_BINDING_TYPES[crafted_item_binding] end
+		if #bindings > 0 then
+			AddSectionSeparator()
+			ttAdd(0, -1, true, table.concat(bindings, " · "), BASIC_COLORS.normal)
 		end
-
-			local _, crafted_item_binding = recipe:CraftedItem()
-
-		if crafted_item_binding then
-			ttAdd(0, -1, true, ITEM_BINDING_TYPES[crafted_item_binding], BASIC_COLORS.normal)
-		end
-
-	acquire_tip:AddLine(" ")
 
 		local recipe_specialty = recipe.specialty
 
 		if recipe_specialty then
 			local color_table = (recipe_specialty == private.current_profession_specialty) and BASIC_COLORS.white or private.DIFFICULTY_COLORS.impossible
-			ttAdd(0, -1, false, _G.ITEM_REQ_SKILL:format(_G.GetSpellInfo(recipe_specialty)), color_table)
-			acquire_tip:AddLine(" ")
+			ttAdd(0, -1, false, _G.ITEM_REQ_SKILL:format(private.GetSpellName(recipe_specialty)), color_table)
 		end
+		AddSectionSeparator()
         ttAdd(0, -1, false, _G.SOURCES .. _G.HEADER_COLON, BASIC_COLORS.normal)
 
 		local listEntryAcquireType = listEntry:AcquireType()
         local listEntryLocation = listEntry:Location()
-		addon:DisplayAcquireData(recipe:SpellID(), listEntryAcquireType and listEntryAcquireType:ID() or nil, listEntryLocation and listEntryLocation:LocalizedName() or nil, ttAdd)
+		local tooltipLocationName = listEntryLocation and listEntryLocation ~= private.WorldDropLocation
+			and listEntryLocation:LocalizedName() or nil
+		addon:DisplayAcquireData(recipe:SpellID(), listEntryAcquireType and listEntryAcquireType:ID() or nil, tooltipLocationName, ttAdd, AddSectionSeparator)
+
+		if recipe:MerchantFavor() then
+			AddSectionSeparator()
+			private.AddMerchantFavorTooltipLine(recipe, ttAdd)
+		end
 
 		if not addon.db.profile.hide_tooltip_hint then
 			local hint_color = private.CATEGORY_COLORS.hint
 
-			acquire_tip:AddLine(" ")
-			acquire_tip:AddLine(" ")
+			AddSectionSeparator()
+			ttAdd(0, -1, true, L["CLICK"], hint_color)
+			ttAdd(0, -1, true, L["ALT_CLICK"], hint_color)
+			ttAdd(0, -1, true, L["CTRL_CLICK"], hint_color)
+			ttAdd(0, -1, true, L["SHIFT_CLICK"], hint_color)
+            ttAdd(0, -1, true, L["SHIFT_RIGHT_CLICK"], hint_color)
 
-			ttAdd(0, -1, 0, L["CLICK"], hint_color)
-			ttAdd(0, -1, 0, L["ALT_CLICK"], hint_color)
-			ttAdd(0, -1, 0, L["CTRL_CLICK"], hint_color)
-			ttAdd(0, -1, 0, L["SHIFT_CLICK"], hint_color)
-
-			if recipe:HasCoordinates() and _G.TomTom and (addon.db.profile.worldmap or addon.db.profile.minimap) then
-				ttAdd(0, -1, 0, L["CTRL_SHIFT_CLICK"], hint_color)
+			if recipe:HasCoordinates() then
+				ttAdd(0, -1, true, L["CTRL_SHIFT_CLICK"], hint_color)
 			end
 		end
-	acquire_tip:Show()
+		acquire_tip:Show()
+		-- Measure against the whole screen, then restore the requested anchor.
+		-- QTip otherwise shortens tall tips at their initial anchor before the
+		-- client can clamp them, even when their full height would fit on screen.
+		local points = {}
+		for index = 1, acquire_tip:GetNumPoints() do
+			points[index] = { acquire_tip:GetPoint(index) }
+		end
+		local screenHeight = _G.UIParent:GetHeight() * _G.UIParent:GetEffectiveScale() / acquire_tip:GetEffectiveScale()
+		acquire_tip:SetMaxHeight(math.max(1, screenHeight - 24))
+		acquire_tip:ClearAllPoints()
+		acquire_tip:SetPoint("TOPLEFT", _G.UIParent, "TOPLEFT", 12, -12)
+		acquire_tip:UpdateLayout()
+		acquire_tip:ClearAllPoints()
+		for _, point in ipairs(points) do acquire_tip:SetPoint(unpack(point)) end
+		acquire_tip:SetClampedToScreen(true)
+		AlignTooltipSeparators()
+		ShowProductTooltip(recipe, showProduct)
 	end
 end	-- do

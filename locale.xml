@@ -8,5 +8,4 @@
     <Include file="Locales\deDE.lua"/>
     <Include file="Locales\esES.lua"/>
     <Include file="Locales\ruRU.lua"/>
-    <Include file="Locales\itIT.lua"/>
 </Ui>

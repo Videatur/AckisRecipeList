@@ -8,6 +8,7 @@ local pairs = _G.pairs
 -- AddOn namespace.
 -- ----------------------------------------------------------------------------
 local FOLDER_NAME, private = ...
+local L = _G.LibStub("AceLocale-3.0"):GetLocale(private.addon_name)
 
 -- ----------------------------------------------------------------------------
 -- Imports.
@@ -33,7 +34,10 @@ private.RegisterAcquireType({
 	_func_expand_list_entry = function(self, entry_index, entry_type, parent_entry, identifier, info, recipe, hide_location, hide_type)
 		local reputation_entity = self:GetEntity(identifier)
 
-		if not reputation_entity then
+		-- A neutral reputation vendor may sell recipes restricted to one player
+		-- faction.  The vendor's faction alone is therefore not enough to decide
+		-- visibility; respect the recipe's Alliance/Horde filter as well.
+		if not reputation_entity or (not private.db.profile.filters.general.faction and not private.Player:HasRecipeFaction(recipe)) then
 			return entry_index
 		end
 
@@ -70,7 +74,10 @@ private.RegisterAcquireType({
 				entry = private.CreateListEntry(entry_type, parent_entry, recipe)
 				entry:SetNPCID(vendor_id)
 				entry:SetLocation(rep_vendor.Location)
-				entry:SetText(self.EntryPadding:rep(2) .. self.__faction_labels[reputation_level] .. self.ColorNameByFaction(rep_vendor.name, rep_vendor.faction))
+				local standingLabel = recipe:IsRepVendorStandingUnknown(identifier)
+					and private.SetTextColor(CATEGORY_COLORS.repname.hex, L["Special requirements"] .. " : ")
+					or self.__faction_labels[reputation_level]
+				entry:SetText(self.EntryPadding:rep(2) .. standingLabel .. self.ColorNameByFaction(rep_vendor.name, rep_vendor.faction))
 
 				entry_index = private.list_frame:InsertEntry(entry, entry_index, true)
 
@@ -100,48 +107,51 @@ private.RegisterAcquireType({
 	_func_insert_tooltip_text = function(self, recipe, identifier, localizedLocationName, acquire_info, addline_func)
 		local reputation_entity = self:GetEntity(identifier)
 
-		if not reputation_entity then
+		-- Keep tooltip output consistent with the list: neutral vendors must not
+		-- bypass a faction restriction placed on the recipe.
+		if not reputation_entity or (not private.db.profile.filters.general.faction and not private.Player:HasRecipeFaction(recipe)) then
 			return
 		end
 
-		for reputationLevel, levelData in pairs(acquire_info) do
-			for vendorID in pairs(levelData) do
+		local levels = {}
+		for level in pairs(acquire_info) do levels[#levels + 1] = level end
+		table.sort(levels)
+		local ranks = {
+			[0] = {LFAC.NEUTRAL, private.REPUTATION_COLORS.neutral},
+			[1] = {LFAC.FRIENDLY, private.REPUTATION_COLORS.friendly},
+			[2] = {LFAC.HONORED, private.REPUTATION_COLORS.honored},
+			[3] = {LFAC.REVERED, private.REPUTATION_COLORS.revered},
+			[4] = {LFAC.EXALTED, private.REPUTATION_COLORS.exalted}
+		}
+		for _, reputationLevel in ipairs(levels) do
+			local vendors = {}
+			for vendorID in pairs(acquire_info[reputationLevel]) do
 				local vendor = private.AcquireTypes.Vendor:GetEntity(vendorID)
-
-				local matchesLocation = true
-				if localizedLocationName then
-					if vendor and vendor.Location and vendor.Location.LocalizedName then
-						matchesLocation = (vendor.Location:LocalizedName() == localizedLocationName)
-					else
-						matchesLocation = false
+				local location = vendor and vendor.Location
+				local locName = (location and location.LocalizedName and location:LocalizedName()) or "Unknown"
+				if vendor and (not localizedLocationName or locName == localizedLocationName) then
+					local canDisplay, nameColor = self.GetTipFactionInfo(vendor.faction)
+					if canDisplay then
+						vendors[#vendors + 1] = {id=vendorID, entity=vendor, location=locName, color=nameColor}
 					end
 				end
-
-				if vendor and matchesLocation then
-					local canDisplay, nameColor = self.GetTipFactionInfo(vendor.faction)
-
-					if canDisplay then
-						addline_func(0, -1, false, REPUTATION_VENDOR_LABEL, self:ColorData(), reputation_entity.name, CATEGORY_COLORS.repname)
-
-						if reputationLevel == 0 then
-							addline_func(1, -2, false, LFAC.NEUTRAL, private.REPUTATION_COLORS.neutral, vendor.name, nameColor)
-						elseif reputationLevel == 1 then
-							addline_func(1, -2, false, LFAC.FRIENDLY, private.REPUTATION_COLORS.friendly, vendor.name, nameColor)
-						elseif reputationLevel == 2 then
-							addline_func(1, -2, false, LFAC.HONORED, private.REPUTATION_COLORS.honored, vendor.name, nameColor)
-						elseif reputationLevel == 3 then
-							addline_func(1, -2, false, LFAC.REVERED, private.REPUTATION_COLORS.revered, vendor.name, nameColor)
-						else
-							addline_func(1, -2, false, LFAC.EXALTED, private.REPUTATION_COLORS.exalted, vendor.name, nameColor)
-						end
-
-						local locName = (vendor.Location and vendor.Location.LocalizedName and vendor.Location:LocalizedName()) or "Unknown"
-						if vendor.coord_x ~= 0 and vendor.coord_y ~= 0 then
-							addline_func(2, -2, true, locName, CATEGORY_COLORS.location, COORDINATES_FORMAT:format(vendor.coord_x, vendor.coord_y), CATEGORY_COLORS.coords)
-						else
-							addline_func(2, -2, true, locName, CATEGORY_COLORS.location, "", CATEGORY_COLORS.coords)
-						end
+			end
+			table.sort(vendors, function(a, b)
+				if a.entity.name == b.entity.name then return a.id < b.id end
+				return a.entity.name < b.entity.name
+			end)
+			if #vendors > 0 then
+				local rank = ranks[reputationLevel] or ranks[4]
+				local standingLabel = recipe:IsRepVendorStandingUnknown(identifier) and L["Special requirements"] or rank[1]
+				addline_func(0, 0, false, reputation_entity.name, CATEGORY_COLORS.repname, standingLabel, rank[2])
+				for _, entry in ipairs(vendors) do
+					local vendor = entry.entity
+					addline_func(1, -1, false, vendor.name, entry.color)
+					local coords = ""
+					if vendor.coord_x and vendor.coord_y and vendor.coord_x ~= 0 and vendor.coord_y ~= 0 then
+						coords = COORDINATES_FORMAT:format(vendor.coord_x, vendor.coord_y)
 					end
+					addline_func(2, -2, true, entry.location, CATEGORY_COLORS.location, coords, CATEGORY_COLORS.coords)
 				end
 			end
 		end
@@ -157,7 +167,9 @@ private.RegisterAcquireType({
 		end
 
 		local reputation = self:GetEntity(vendor.reputation_id)
-		if reputation and private.Player.reputation_levels[reputation.name] then
+		local standing = private.Player.reputation_levels_by_id[vendor.reputation_id]
+		if reputation and standing and standing > 0 and self.CanDisplayFaction(vendor.faction)
+			and private.IsReputationForFaction(vendor.reputation_id, private.Player.faction) then
 			return vendor
 		end
 	end,

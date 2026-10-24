@@ -36,6 +36,7 @@ local PROFESSION_SPELL_IDS = {
 	ENCHANTING = 7411,
 	ENGINEERING = 4036,
 	FISHING = 7731,
+	FIRST_AID = 1240927,
 	INSCRIPTION = 45357,
 	JEWELCRAFTING = 25229,
 	LEATHERWORKING = 2108,
@@ -46,9 +47,22 @@ local PROFESSION_SPELL_IDS = {
 private.PROFESSION_SPELL_IDS = PROFESSION_SPELL_IDS
 private.constants.PROFESSION_SPELL_IDS = PROFESSION_SPELL_IDS
 
+-- Skill line IDs identify professions independently of their translated spells.
+local PROFESSION_SKILL_LINE_IDS = {
+    ALCHEMY = 171, ARCHAEOLOGY = 794, BLACKSMITHING = 164, COOKING = 185,
+    ENCHANTING = 333, ENGINEERING = 202, FISHING = 356, FIRST_AID = 129,
+    INSCRIPTION = 773, JEWELCRAFTING = 755, LEATHERWORKING = 165,
+    MINING = 186, TAILORING = 197,
+}
+local SKILL_LINE_ID_TO_LABEL = {}
+for label, id in pairs(PROFESSION_SKILL_LINE_IDS) do
+    SKILL_LINE_ID_TO_LABEL[id] = label
+end
+private.PROFESSION_SKILL_LINE_IDS = PROFESSION_SKILL_LINE_IDS
+
 -- ============================================================================
 -- Localized Name Tables
--- Built from spell info for client language support
+-- Built from native skill line names, with spell names as a startup fallback
 -- ============================================================================
 local LOCALIZED_PROFESSION_NAMES = {}
 private.LOCALIZED_PROFESSION_NAMES = LOCALIZED_PROFESSION_NAMES
@@ -60,11 +74,17 @@ local PROFESSION_ID_TO_LOCALIZED_NAME = {}
 private.PROFESSION_ID_TO_LOCALIZED_NAME = PROFESSION_ID_TO_LOCALIZED_NAME
 
 for label, spellID in pairs(PROFESSION_SPELL_IDS) do
-	local professionName = _G.GetSpellInfo(spellID)
+    local skillLineID = PROFESSION_SKILL_LINE_IDS[label]
+    local info = _G.C_TradeSkillUI.GetProfessionInfoBySkillLineID(skillLineID)
+    local professionName = info and info.professionName
+    if not professionName or professionName == "" or professionName == _G.UNKNOWN then
+        professionName = private.GetSpellName(spellID)
+    end
 	if professionName then
 		LOCALIZED_PROFESSION_NAME_TO_LABEL[professionName] = label
 		LOCALIZED_PROFESSION_NAMES[label] = professionName
 		PROFESSION_ID_TO_LOCALIZED_NAME[spellID] = professionName
+        PROFESSION_ID_TO_LOCALIZED_NAME[skillLineID] = professionName
 	end
 end
 
@@ -75,11 +95,16 @@ end
 local LOCALIZED_SPELL_NAME_TO_LOCALIZED_PROFESSION_NAME_MAPPING = {}
 
 local function MapSpellToProfession(spellID, label)
-	local name = _G.GetSpellInfo(spellID)
+	local name = private.GetSpellName(spellID)
 	local profName = LOCALIZED_PROFESSION_NAMES[label]
 	if name and profName then
 		LOCALIZED_SPELL_NAME_TO_LOCALIZED_PROFESSION_NAME_MAPPING[name] = profName
 	end
+end
+
+-- First Aid ranks published by Forever, including its original spell aliases.
+for _, spellID in ipairs({3273, 3274, 7924, 10846, 1240927, 1240928, 1240929, 1240930}) do
+	MapSpellToProfession(spellID, 'FIRST_AID')
 end
 
 -- Alchemy expansions
@@ -200,6 +225,7 @@ local ORDERED_LOCALIZED_PROFESSION_NAMES = {
 	LOCALIZED_PROFESSION_NAMES.LEATHERWORKING,
 	LOCALIZED_PROFESSION_NAMES.MINING,
 	LOCALIZED_PROFESSION_NAMES.TAILORING,
+	LOCALIZED_PROFESSION_NAMES.FIRST_AID,
 }
 
 private.ORDERED_LOCALIZED_PROFESSION_NAMES = ORDERED_LOCALIZED_PROFESSION_NAMES
@@ -227,6 +253,7 @@ AddProfMap('JEWELCRAFTING', 'Jewelcrafting')
 AddProfMap('LEATHERWORKING', 'Leatherworking')
 AddProfMap('MINING', 'Mining')
 AddProfMap('TAILORING', 'Tailoring')
+AddProfMap('FIRST_AID', 'FirstAid')
 
 private.LOCALIZED_PROFESSION_NAME_TO_MODULE_NAME_MAPPING = LOCALIZED_PROFESSION_NAME_TO_MODULE_NAME_MAPPING
 
@@ -248,6 +275,28 @@ end
 
 private.MODULE_NAME_TO_LOCALIZED_PROFESSION_NAME_MAPPING = MODULE_NAME_TO_LOCALIZED_PROFESSION_NAME_MAPPING
 
+-- Keep one canonical name for scans, player ranks and registered modules.
+-- An ID takes precedence over text; unknown IDs must not guess a profession.
+function private.ResolveProfessionName(skillLineID, name)
+    local label = skillLineID and SKILL_LINE_ID_TO_LABEL[skillLineID]
+    if skillLineID and not label then return name end
+    local canonical = label and LOCALIZED_PROFESSION_NAMES[label]
+        or LOCALIZED_SPELL_NAME_TO_LOCALIZED_PROFESSION_NAME_MAPPING[name]
+        or MODULE_NAME_TO_LOCALIZED_PROFESSION_NAME_MAPPING[name]
+    if not canonical then return name end
+    if name and name ~= "" and name ~= _G.UNKNOWN then
+        LOCALIZED_SPELL_NAME_TO_LOCALIZED_PROFESSION_NAME_MAPPING[name] = canonical
+        LOCALIZED_PROFESSION_NAME_TO_LABEL[name] = label or LOCALIZED_PROFESSION_NAME_TO_LABEL[canonical]
+        LOCALIZED_PROFESSION_NAME_TO_MODULE_NAME_MAPPING[name] = LOCALIZED_PROFESSION_NAME_TO_MODULE_NAME_MAPPING[canonical]
+    end
+    return canonical
+end
+
+-- Activation spell names can differ from the skill line name in any locale.
+for label, spellID in pairs(PROFESSION_SPELL_IDS) do
+    private.ResolveProfessionName(PROFESSION_SKILL_LINE_IDS[label], private.GetSpellName(spellID))
+end
+
 -- ============================================================================
 -- Waypoint Icons
 -- Icons for minimap/worldmap pins per profession
@@ -264,6 +313,7 @@ local WAYPOINT_ICON_TEXTURES = {
 	[[Trade_LeatherWorking]],
 	[[Spell_Fire_FlameBlades]],
 	[[Trade_Tailoring]],
+	[[Spell_Holy_SealOfSacrifice]],
 }
 
 -- ============================================================================
@@ -327,7 +377,7 @@ function addon.CreateProfessionFromModule(module)
 		_name = moduleName,
 		_module = module,
 		_recipeCount = 0,
-		_activationSpellName = module.ActivationSpellID and _G.GetSpellInfo(module.ActivationSpellID) or localizedProfessionName,
+		_activationSpellName = module.ActivationSpellID and private.GetSpellName(module.ActivationSpellID) or localizedProfessionName,
 		Recipes = module.Recipes,
 	}, ProfessionMetatable)
 
@@ -349,5 +399,7 @@ function addon.CreateProfessionFromModule(module)
 		addon.constants.ITEM_FILTER_TYPES[filter_name] = true
 	end
 
-	module.db = addon.db:RegisterNamespace(module.ModuleName, defaults)
+	-- moduleName comes from AceAddon and is available even when a load-on-demand
+	-- module's OnInitialize has not populated its legacy ModuleName field yet.
+	module.db = addon.db:RegisterNamespace(moduleName, defaults)
 end

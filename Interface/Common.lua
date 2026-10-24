@@ -47,33 +47,20 @@ do
 	local recipe_list = private.recipe_list
 	local sorted_recipes = addon.sorted_recipes
 
-	local function Sort_SkillAsc(a, b)
-		local recipeA, recipeB = recipe_list[a], recipe_list[b]
+    local function SortSkill(a, b, descending)
+        local recipeA, recipeB = recipe_list[a], recipe_list[b]
+        local levelA, levelB = recipeA.skill_level or 0, recipeB.skill_level or 0
+        if levelA == levelB then
+            local nameA, nameB = recipeA:LocalizedName(), recipeB:LocalizedName()
+            if nameA == nameB then return a < b end
+            return nameA < nameB
+        end
+        if descending then return levelA > levelB end
+        return levelA < levelB
+    end
 
-		if not recipeA.skill_level and not recipeA.skill_level then
-			return recipeA:LocalizedName() < recipeB:LocalizedName()
-		elseif not recipeA.skill_level then
-			return recipeB.skill_level < 0
-		elseif not recipeB.skill_level then
-			return 0 < recipeA.skill_level
-		end
-
-		if recipeA.skill_level == recipeB.skill_level then
-			return recipeA:LocalizedName() < recipeB:LocalizedName()
-		else
-			return recipeA.skill_level < recipeB.skill_level
-		end
-	end
-
-	local function Sort_SkillDesc(a, b)
-		local recipeA, recipeB = recipe_list[a], recipe_list[b]
-
-		if recipeA.skill_level == recipeB.skill_level then
-			return recipeA:LocalizedName() < recipeB:LocalizedName()
-		else
-			return recipeB.skill_level < recipeA.skill_level
-		end
-	end
+    local function Sort_SkillAsc(a, b) return SortSkill(a, b, false) end
+    local function Sort_SkillDesc(a, b) return SortSkill(a, b, true) end
 
 	local function Sort_NameAsc(a, b)
 		return recipe_list[a]:LocalizedName() < recipe_list[b]:LocalizedName()

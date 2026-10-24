@@ -26,8 +26,5 @@ function addon:InitDiscoveries()
     end
 
     AddDiscovery("DISCOVERY_AUTOLEARN")
-    AddDiscovery("DISCOVERY_SHADOWLANDS")
-
     self.InitDiscoveries = nil
 end
-

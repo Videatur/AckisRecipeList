@@ -4,6 +4,7 @@
 
     <Include file="Interface\Common.lua"/>
     <Include file="Interface\ListEntry.lua"/>
+    <Include file="Interface\Guide.lua"/>
     <Include file="Interface\Tabs.lua"/>
     <Include file="Interface\List.lua"/>
     <Include file="Interface\FilterMenus.lua"/>

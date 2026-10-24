@@ -7,6 +7,11 @@
 -- ----------------------------------------------------------------------------
 local FOLDER_NAME, private = ...
 
+-- Achievement categories may be unavailable on clients without the
+-- achievement system. The acquire type still needs a stable display name.
+local worldEventName = (_G.GetCategoryInfo and _G.GetCategoryInfo(155)) or
+	_G.WORLD_EVENTS or "World Events"
+
 private.RegisterAcquireType({
 	-- ----------------------------------------------------------------------------
 	-- Data.
@@ -15,7 +20,7 @@ private.RegisterAcquireType({
 	_hasCoordinates = true,
 	_hasEntities = true,
 	_label = "WORLD_EVENT",
-	_name = _G.GetCategoryInfo(155),
+	_name = worldEventName,
 	-- ----------------------------------------------------------------------------
 	-- Methods.
 	-- ----------------------------------------------------------------------------

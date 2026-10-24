@@ -29,6 +29,7 @@ local list_entry_meta = {
 }
 
 local VALID_LIST_ENTRY_TYPES = {
+	category = true,
 	entry = true,
 	header = true,
 	subentry = true,
@@ -39,11 +40,12 @@ local VALID_LIST_ENTRY_TYPES = {
 function private.CreateListEntry(listEntryType, parentListEntry, recipe)
 	local listEntry = _G.setmetatable(private.AcquireTable(), list_entry_meta)
 	listEntry.recipe = recipe
+	listEntry.acquisitionSourceRow = nil
+	listEntry.waypointTarget = nil
 
 	if listEntryType and VALID_LIST_ENTRY_TYPES[listEntryType] then
 		listEntry._type = listEntryType
 	else
-		addon:Debug("Attempting to set an entry's type to '%s'.", tostring(listEntryType))
 		listEntry._type = "entry"
 	end
 
@@ -57,11 +59,7 @@ function private.CreateListEntry(listEntryType, parentListEntry, recipe)
 
 			parentListEntry.children = parentListEntry.children or private.AcquireTable()
 			parentListEntry.children[#parentListEntry.children + 1] = listEntry
-		else
-			addon:Debug("Attempting to parent an entry to itself.")
 		end
-	elseif listEntry._type ~= "header" and listEntry._type ~= "title" then
-		addon:Debug("Non-header/title entry without a parent: %s", listEntry._type)
 	end
 
 	return listEntry
@@ -131,6 +129,10 @@ end
 
 function list_entry_prototype:IsEntry()
 	return self._type == "entry"
+end
+
+function list_entry_prototype:IsCategory()
+	return self._type == "category"
 end
 
 function list_entry_prototype:IsHeader()

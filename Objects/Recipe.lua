@@ -31,7 +31,6 @@ local FOLDER_NAME, private = ...
 
 local LibStub = _G.LibStub
 local addon = LibStub("AceAddon-3.0"):GetAddon(private.addon_name)
-local L = LibStub("AceLocale-3.0"):GetLocale(private.addon_name)
 
 local AcquireTypes = private.AcquireTypes
 
@@ -57,25 +56,9 @@ local REUSED_RECIPE_IDS
 --- @param recipe table The recipe object
 --- @param localizedLocationName string The zone name
 --- @param affiliation string|nil Optional faction affiliation
-local AddRecipeToLocation
-do
-	local InvalidLocationRegistry = {}
-
-	function AddRecipeToLocation(recipe, localizedLocationName, affiliation)
-		if not localizedLocationName then
-			return
-		end
-
-		local location = private.LocationsByLocalizedName[localizedLocationName]
-		if location then
-			location:AssignRecipe(recipe, affiliation or true)
-		else
-			if not InvalidLocationRegistry[localizedLocationName] then
-				addon:Debug("Invalid location: %s", localizedLocationName)
-				InvalidLocationRegistry[localizedLocationName] = true
-			end
-		end
-	end
+local function AddRecipeToLocation(recipe, localizedLocationName, affiliation)
+    local location = localizedLocationName and private.LocationsByLocalizedName[localizedLocationName]
+    if location then location:AssignRecipe(recipe, affiliation or true) end
 end
 
 -- ============================================================================
@@ -97,7 +80,6 @@ function addon:AddRecipe(module, recipeData)
 	local existingRecipe = recipeList[spellID]
 
 	if existingRecipe and not REUSED_RECIPE_IDS[spellID] then
-		self:Debug("Duplicate recipe from %s: %d - %s", module.Name, spellID, existingRecipe:LocalizedName())
 		return
 	end
 
@@ -106,7 +88,6 @@ function addon:AddRecipe(module, recipeData)
 
 	if not recipe:LocalizedName() or recipe:LocalizedName() == "" then
 		recipe:SetLocalizedName(("%s: %d"):format(_G.UNKNOWN, tonumber(spellID)))
-		self:Debug(L["SpellIDCache"]:format(spellID))
 	end
 	recipeList[spellID] = recipe
 
@@ -138,10 +119,6 @@ function Recipe:GetOrCreateAcquireDataOfType(acquireType, ...)
 	return acquireType:GetOrCreateRecipeData(sourceData, ...)
 end
 
-function Recipe:ExpansionID()
-	return self._expansionID
-end
-
 function Recipe:LocalizedName()
 	return self._localizedName
 end
@@ -163,7 +140,7 @@ function Recipe:SpellID()
 end
 
 function Recipe:IsVisible()
-    return self:HasState("VISIBLE") and not self:HasState("IGNORED") and addon.Frame.search_editbox:MatchesRecipe(self)
+    return self:HasState("VISIBLE") and not self:HasState(addon.Frame.is_linked and "LINKED_IGNORED" or "IGNORED") and addon.Frame.search_editbox:MatchesRecipe(self)
 end
 
 function Recipe:HasCoordinates()
@@ -175,7 +152,7 @@ function Recipe:HasCoordinates()
 end
 
 function Recipe:SetRecipeItem(item_id, binding_type)
-	local item_name, item_link, item_quality = _G.GetItemInfo(item_id) -- Do this now to get the item into the cache.
+	local item_name, item_link, item_quality = private.GetItemInfo(item_id) -- Do this now to get the item into the cache.
 	self.recipe_item_id = item_id
 	self.recipe_item_binding = binding_type
 end
@@ -185,7 +162,7 @@ function Recipe:RecipeItem()
 end
 
 function Recipe:SetCraftedItem(item_id, binding_type)
-	local item_name, item_link, item_quality = _G.GetItemInfo(item_id) -- Do this now to get the item into the cache.
+	local item_name, item_link, item_quality = private.GetItemInfo(item_id) -- Do this now to get the item into the cache.
 	self.crafted_item_id = item_id
 	self.crafted_item_binding = binding_type
 end
@@ -196,14 +173,41 @@ end
 
 function Recipe:SetSkillLevels(skill_level, optimal_level, medium_level, easy_level, trivial_level)
 	self.skill_level = skill_level
+	self.skill_thresholds_unknown = nil
 	self.optimal_level = optimal_level or skill_level
 	self.medium_level = medium_level or skill_level + 10
 	self.easy_level = easy_level or skill_level + 15
 	self.trivial_level = trivial_level or skill_level + 20
 end
 
+-- Preserve a verified requirement when the source does not publish skill-up
+-- thresholds. The UI renders this in neutral white instead of guessed colors.
+function Recipe:SetRequiredSkillLevel(skill_level)
+	if type(skill_level) ~= "number" or skill_level < 1 or skill_level % 1 ~= 0 then
+		_G.error("SetRequiredSkillLevel requires a positive integer skill", 2)
+	end
+	self.skill_level = skill_level
+	self.optimal_level = nil
+	self.medium_level = nil
+	self.easy_level = nil
+	self.trivial_level = nil
+	self.skill_thresholds_unknown = true
+end
+
 function Recipe:SkillLevels()
 	return self.skill_level, self.optimal_level, self.medium_level, self.easy_level, self.trivial_level
+end
+
+--- Store the pattern's Merchant's Favor purchase cost (currency 3402).
+function Recipe:AddMerchantFavor(amount)
+	if type(amount) ~= "number" or amount <= 0 or amount % 1 ~= 0 then
+		_G.error("AddMerchantFavor requires a positive integer cost", 2)
+	end
+	self.merchant_favor = amount
+end
+
+function Recipe:MerchantFavor()
+	return self.merchant_favor
 end
 
 function Recipe:SetSpecialty(spell_id)
@@ -228,15 +232,11 @@ function Recipe:SetRequiredFaction(faction_name)
 			self:RemoveFilters(private.FILTER_IDS.HORDE)
 		elseif faction_name == "Horde" then
 			self:RemoveFilters(private.FILTER_IDS.ALLIANCE)
-		else
-			addon:Debug("Unknown faction_name \"%s\" passed to SetRequiredFaction for recipe %d.", faction_name, self.SpellID())
 		end
 
 		if private.Player.faction ~= faction_name then
             self:AddState("IGNORED")
 		end
-	else
-		addon:Debug("No faction name passed to SetRequiredFaction for recipe %d", self.SpellID())
 	end
 end
 
@@ -256,6 +256,7 @@ do
 		VISIBLE = 0x00000004,
 		LINKED = 0x00000008,
 		IGNORED = 0x00000010,
+        LINKED_IGNORED = 0x00000020,
 	}
 
 	function Recipe:HasState(state_name)
@@ -311,7 +312,7 @@ do
 	local SKILL_LEVEL_FORMAT = "[%d]"
 
 	function Recipe:GetDisplayName()
-		local _, _, _, quality_color = _G.GetItemQualityColor(self:QualityID())
+		local _, _, _, quality_color = private.GetItemQualityColor(self:QualityID())
 		local recipeName = self:LocalizedName()
 		local hasFaction = private.Player:HasProperRepLevel(self:AcquireDataOfType(private.AcquireTypes.Reputation))
 		local skillLevel = private.current_profession_scanlevel
@@ -322,6 +323,8 @@ do
 		if hasFaction then
 			if recipeLevel > skillLevel then
 				diffColor = "impossible"
+			elseif self.skill_thresholds_unknown then
+				diffColor = "unknown"
 			elseif skillLevel >= self.trivial_level then
 				diffColor = "trivial"
 			elseif skillLevel >= self.easy_level then
@@ -356,7 +359,6 @@ end -- do-block
 
 function Recipe:SetItemFilterType(filter_type)
 	if not addon.constants.ITEM_FILTER_TYPES[filter_type:upper()] then
-		addon:Debug("Attempting to set invalid item filter type '%s' for '%s' (%d)", filter_type, self:LocalizedName(), self:SpellID())
 		return
 	end
 	self.item_filter_type = filter_type:lower()
@@ -386,7 +388,6 @@ local function SetFilterState(recipe, turn_on, ...)
 			end
 
 			if not bitfield or not memberName then
-				addon:Debug("Recipe '%s' (spell ID %d): Attempting to assign non-existent filter flag %s.", recipe:LocalizedName(), recipe:SpellID(), filterName)
 				return
 			end
 
@@ -395,33 +396,34 @@ local function SetFilterState(recipe, turn_on, ...)
 			end
 
             local flag = bitfield[filterName]
-			if turn_on then
-				if bit.band(recipe._bitflags[memberName], flag) == flag then
-					if recipe._bitflags[memberName] == 0 then
-						recipe._bitflags[memberName] = nil
-					end
-					return
-				end
-			else
-				if bit.band(recipe._bitflags[memberName], flag) ~= flag then
-					if recipe._bitflags[memberName] == 0 then
-						recipe._bitflags[memberName] = nil
-					end
-					return
-				end
+			if (bit.band(recipe._bitflags[memberName], flag) == flag) ~= turn_on then
+				recipe._bitflags[memberName] = bit.bxor(recipe._bitflags[memberName], flag)
 			end
-			recipe._bitflags[memberName] = bit.bxor(recipe._bitflags[memberName], flag)
 
 			if recipe._bitflags[memberName] == 0 then
 				recipe._bitflags[memberName] = nil
 			end
-		else
-			addon:Debug("Recipe '%s' (spell ID %d): Attempting to %s non-existent filter flag.", recipe:LocalizedName(), recipe:SpellID(), turn_on and "assign" or "remove")
 		end
 	end
 end
 
 function Recipe:AddFilters(...)
+	-- Recipes start with both factions enabled. An explicit single-faction flag
+	-- from a module must replace that default, while a call naming both keeps it.
+	local alliance, horde = false, false
+	for index = 1, select('#', ...) do
+		local filterID = select(index, ...)
+		if filterID == private.FILTER_IDS.ALLIANCE then
+			alliance = true
+		elseif filterID == private.FILTER_IDS.HORDE then
+			horde = true
+		end
+	end
+	if alliance and not horde then
+		self:RemoveFilters(private.FILTER_IDS.HORDE)
+	elseif horde and not alliance then
+		self:RemoveFilters(private.FILTER_IDS.ALLIANCE)
+	end
 	SetFilterState(self, true, ...)
 end
 
@@ -437,6 +439,23 @@ end
 function Recipe:AddAcquireData(acquireType, typeLabel, ...)
 	local acquireData = self:GetOrCreateAcquireDataOfType(acquireType)
 	local isLimitedVendor = typeLabel == "Limited Vendor"
+	local sharedWorldDrop
+	local kalimdorName, easternKingdomsName
+	if acquireType == AcquireTypes.WorldDrop and private.WorldDropLocation then
+		local kalimdor = private.ContinentLocationByID[1]
+		local easternKingdoms = private.ContinentLocationByID[2]
+		kalimdorName = kalimdor and kalimdor:LocalizedName()
+		easternKingdomsName = easternKingdoms and easternKingdoms:LocalizedName()
+		if kalimdorName and easternKingdomsName then
+			local hasKalimdor, hasEasternKingdoms = false, false
+			for index = 1, select('#', ...) do
+				local locationName = select(index, ...)
+				hasKalimdor = hasKalimdor or locationName == kalimdorName
+				hasEasternKingdoms = hasEasternKingdoms or locationName == easternKingdomsName
+			end
+			sharedWorldDrop = hasKalimdor and hasEasternKingdoms
+		end
+	end
 
 	acquireType:AssignRecipe(self:SpellID())
 
@@ -454,44 +473,42 @@ function Recipe:AddAcquireData(acquireType, typeLabel, ...)
 			quantity = select(currentVariableIndex, ...)
 			currentVariableIndex = currentVariableIndex + 1
 		end
-		acquireData[identifier] = true
+		if identifier ~= nil then
+			acquireData[identifier] = true
 
-		if acquireType:HasEntities() then
-			local entity = acquireType:GetEntity(identifier)
-			if entity then
-				affiliation = entity.faction
+			if acquireType:HasEntities() then
+				local entity = acquireType:GetEntity(identifier)
+				if entity then
+					affiliation = entity.faction
 
-				if entity.Location then
-					entity.Location:AssignRecipe(self, affiliation or true)
+					if entity.Location then
+						entity.Location:AssignRecipe(self, affiliation or true)
+					end
+
+					entity.item_list[self:SpellID()] = quantity
 				end
-
-				entity.item_list[self:SpellID()] = quantity
 			else
-				if not (acquireType.IsEntityFiltered and acquireType:IsEntityFiltered(identifier)) then
-					addon:Debug("Spell ID %d: %s ID %s does not exist in the %s AcquireType's Entity table.",
-						self:SpellID(),
-						typeLabel,
-						identifier,
-						acquireType:Label())
+				local isStringID = type(identifier) == "string"
+
+				localizedLocationName = isStringID and identifier or nil
+
+				if localizedLocationName then
+					affiliation = "world_drop"
 				end
 			end
-		else
-			local isStringID = type(identifier) == "string"
 
-			localizedLocationName = isStringID and identifier or nil
+			if affiliation then
+				acquireType:AssignRecipe(self:SpellID(), affiliation)
+			end
 
-			if localizedLocationName then
-				affiliation = "world_drop"
-			elseif isStringID then
-				addon:Debug("%s with no location: %d %s", typeLabel, self:SpellID(), self:LocalizedName())
+			if not (sharedWorldDrop and (localizedLocationName == kalimdorName
+				or localizedLocationName == easternKingdomsName)) then
+				AddRecipeToLocation(self, localizedLocationName, affiliation)
 			end
 		end
-
-		if affiliation then
-			acquireType:AssignRecipe(self:SpellID(), affiliation)
-		end
-
-		AddRecipeToLocation(self, localizedLocationName, affiliation)
+	end
+	if sharedWorldDrop then
+		private.WorldDropLocation:AssignRecipe(self, "world_drop")
 	end
 end
 
@@ -560,6 +577,18 @@ function Recipe:AddWorldEvent(...)
 	self:AddFilters(private.FILTER_IDS.WORLD_EVENT)
 end
 
+-- Some Forever vendors publish a minimum standing plus additional unlocks,
+-- without disclosing the final standing. Keep the minimum for filtering and
+-- let acquisition displays distinguish it from a fully verified requirement.
+function Recipe:SetRepVendorStandingUnknown(factionID)
+	self._repVendorStandingUnknown = self._repVendorStandingUnknown or {}
+	self._repVendorStandingUnknown[factionID] = true
+end
+
+function Recipe:IsRepVendorStandingUnknown(factionID)
+	return self._repVendorStandingUnknown and self._repVendorStandingUnknown[factionID] or false
+end
+
 function Recipe:AddRepVendor(factionID, reputationLevel, ...)
 	local reputationAcquireType = AcquireTypes.Reputation
 	local vendorAcquireType = AcquireTypes.Vendor
@@ -593,20 +622,8 @@ function Recipe:AddRepVendor(factionID, reputationLevel, ...)
 					reputation.item_list[self:SpellID()] = true
 
 					self:AddFilters(private.FILTER_IDS[private.FACTION_LABELS_FROM_ID[factionID]])
-				else
-					if not (vendorAcquireType.IsEntityFiltered and vendorAcquireType:IsEntityFiltered(vendorID)) then
-						addon:Debug("Spell ID %d (%s): Reputation Vendor ID %s does not exist in the %s AcquireType Entity table.",
-							self:SpellID(),
-							tostring(self:LocalizedName()),
-							tostring(vendorID),
-							vendorAcquireType:Label())
-					end
 				end
-			else
-				addon:Debug("Spell ID %d (%s): Nil Reputation Vendor ID passed.", self:SpellID(), tostring(self:LocalizedName()))
 			end
-		else
-			addon:Debug("Spell ID %d: Faction ID %d does not exist in the %s AcquireType Entity table.", self:SpellID(), factionID, reputationAcquireType:Label())
 		end
 
 		reputationAcquireType:AssignRecipe(self:SpellID(), affiliation)
@@ -627,9 +644,10 @@ do
 	local obtain_filters
 
 	local filterVersion = 0
-	local lastFilterHash = 0
-	local currentSkillLevel = 0
-	local currentSpecialty = nil
+	local activeProfile
+	local boundVersion = -1
+	local currentSkillLevel
+	local currentSpecialty
 
 	private.IncrementFilterVersion = function()
 		filterVersion = filterVersion + 1
@@ -639,41 +657,10 @@ do
 		return filterVersion
 	end
 
-	local function ComputeFilterHash()
-		local hash = 0
-		if filter_db then
-			local general = filter_db.general
-			if general then
-				hash = hash + (general.faction and 1 or 0)
-				hash = hash + (general.skill and 2 or 0)
-				hash = hash + (general.specialty and 4 or 0)
-			end
-			local quality = filter_db.quality
-			if quality then
-				hash = hash + (quality.common and 8 or 0)
-				hash = hash + (quality.uncommon and 16 or 0)
-				hash = hash + (quality.rare and 32 or 0)
-				hash = hash + (quality.epic and 64 or 0)
-			end
-		end
-		return hash
-	end
-
 	local function InitializeFilters()
 		filter_db = addon.db.profile.filters
 		player_filters = filter_db.player
 		obtain_filters = filter_db.obtain
-
-		local newHash = ComputeFilterHash()
-		local newSkillLevel = private.current_profession_scanlevel or 0
-		local newSpecialty = private.current_profession_specialty
-
-		if newHash ~= lastFilterHash or newSkillLevel ~= currentSkillLevel or newSpecialty ~= currentSpecialty then
-			filterVersion = filterVersion + 1
-			lastFilterHash = newHash
-			currentSkillLevel = newSkillLevel
-			currentSpecialty = newSpecialty
-		end
 
 		-- HARD_FILTERS and SOFT_FILTERS are used to determine if a recipe should be shown based on the value of the key compared to the value
 		-- of its saved_var.
@@ -704,7 +691,7 @@ do
 			mixed 		= { flagName = "MIXED",		field = "common1",	sv_root = obtain_filters },
 		}
 
-		InitializeFilters = nil
+		boundVersion = filterVersion
 	end
 
 	local Q = private.ITEM_QUALITIES
@@ -713,6 +700,7 @@ do
 		[Q.UNCOMMON] = "uncommon",
 		[Q.RARE] = "rare",
 		[Q.EPIC] = "epic",
+		[Q.LEGENDARY] = "legendary",
 	}
 
 	local REPUTATION_BITFLAG_FILTERS = {}
@@ -727,7 +715,6 @@ do
 
 	local CLASS_FLAGS_WORD1 = private.CLASS_FLAGS_WORD1
 	local CLASS_BITFLAG_FILTERS = {
-		[CLASS_FLAGS_WORD1.DK]			= "deathknight",
 		[CLASS_FLAGS_WORD1.DRUID]		= "druid",
 		[CLASS_FLAGS_WORD1.HUNTER]		= "hunter",
 		[CLASS_FLAGS_WORD1.MAGE]		= "mage",
@@ -737,8 +724,6 @@ do
 		[CLASS_FLAGS_WORD1.ROGUE]		= "rogue",
 		[CLASS_FLAGS_WORD1.WARLOCK]		= "warlock",
 		[CLASS_FLAGS_WORD1.WARRIOR]		= "warrior",
-		[CLASS_FLAGS_WORD1.MONK]		= "monk",
-		[CLASS_FLAGS_WORD1.DEMONHUNTER]		= "demonhunter",
 	}
 
 	-- Returns true if any of the filter flags are turned on.
@@ -757,9 +742,15 @@ do
 
 	--- Scans a specific recipe to determine if it is to be displayed or not.
 	function Recipe:CanDisplay()
-		if InitializeFilters then
-			InitializeFilters()
-		end
+        local profile = addon.db.profile
+        local skill = private.current_profession_scanlevel or 0
+        local specialty = private.current_profession_specialty
+        if activeProfile ~= profile or filter_db ~= profile.filters or
+            currentSkillLevel ~= skill or currentSpecialty ~= specialty then
+            activeProfile, currentSkillLevel, currentSpecialty = profile, skill, specialty
+            filterVersion = filterVersion + 1
+        end
+        if boundVersion ~= filterVersion then InitializeFilters() end
 
 		local cachedVersion = self._canDisplayVersion
 		if cachedVersion and cachedVersion == filterVersion then
@@ -850,11 +841,6 @@ do
 			if specialty and specialty ~= private.current_profession_specialty then
 				return false
 			end
-		end
-
-		-- Expansion filters.
-		if not obtain_filters[private.EXPANSION_FILTERS[self:ExpansionID()]] then
-			return false
 		end
 
 		-- Quality filters.

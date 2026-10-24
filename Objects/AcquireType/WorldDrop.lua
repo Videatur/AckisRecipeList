@@ -36,7 +36,7 @@ private.RegisterAcquireType({
 			local recipe_item_id = recipe:RecipeItem()
 			local _, recipe_item_level
 			if recipe_item_id then
-				_, _, _, recipe_item_level = _G.GetItemInfo(recipe_item_id)
+				_, _, _, recipe_item_level = private.GetItemInfo(recipe_item_id)
 			end
 
 			if recipe_item_level then
@@ -66,7 +66,7 @@ private.RegisterAcquireType({
 		local recipe_item_id = recipe:RecipeItem()
 		local _, recipe_item_level
 		if recipe_item_id then
-			_, _, _, recipe_item_level = _G.GetItemInfo(recipe_item_id)
+			_, _, _, recipe_item_level = private.GetItemInfo(recipe_item_id)
 		end
 
 		local location_text = recipe_item_level and ("%s (%d - %d)"):format(drop_location, recipe_item_level - 5, recipe_item_level + 5) or drop_location

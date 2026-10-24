@@ -1,992 +1,380 @@
---[[
-    Ackis Recipe List - Location Object
+-- Ackis Forever location registry. Snapshot: 2026-09-30; instance geography corrected 2026-10-04.
+-- Source: https://www.wowhead.com/forever/zones
 
-    Provides zone/location tracking for recipe sources:
-    - Zone map ID constants for all WoW zones
-    - Location object with parent/child relationships
-    - HereBeDragons integration for map ID resolution
-    - Instance entrance coordinates for waypoint navigation
-
-    Copyright (c) 2009 - 2012 Ackis <John Pasula>
-    All rights reserved by the original author Ackis.
-]]
-
--- ============================================================================
--- Upvalued Lua API
--- ============================================================================
-local string = _G.string
-local pairs = _G.pairs
-local ipairs = _G.ipairs
-local tonumber = _G.tonumber
-local type = _G.type
-
--- ============================================================================
--- AddOn Namespace
--- ============================================================================
 local FOLDER_NAME, private = ...
-
-local LibStub = _G.LibStub
-local HBD = LibStub("HereBeDragons-2.0")
-
--- ============================================================================
--- Zone Map ID Constants
--- ============================================================================
-local ZONE_MAP_IDS = {
-
-	-------------------------------------------------------------------------------
-	-- Continents
-	-------------------------------------------------------------------------------
-	KALIMDOR = 12,
-	EASTERN_KINGDOMS = 13,
-	OUTLAND = 101,
-	NORTHREND = 113,
-	PANDARIA = 424,
-	DRAENOR = 572,
-	BROKEN_ISLES = 619,
-	ZANDALAR = 875,
-	KUL_TIRAS = 876,
-	ARGUS = 905,
-	COSMIC = 946,
-	AZEROTH = 947,
-	THE_MAELSTROM = 948,
-	THE_SHADOWLANDS = 1550,
-
-	DUROTAR = 1,
-	MULGORE = 7,
-	NORTHERN_BARRENS = 10,
-	THE_BARRENS = 17,
-	ARATHI_HIGHLANDS = 14,
-	BADLANDS = 15,
-	BLASTED_LANDS = 17,
-	TIRISFAL_GLADES = 18,
-	SILVERPINE_FOREST = 21,
-	WESTERN_PLAGUELANDS = 22,
-	EASTERN_PLAGUELANDS = 23,
-	HILLSBRAD_FOOTHILLS = 25,
-	THE_HINTERLANDS = 26,
-	DUN_MOROGH = 27,
-	SEARING_GORGE = 32,
-	BURNING_STEPPES = 36,
-	ELWYNN_FOREST = 37,
-	DEADWIND_PASS = 42,
-	DUSKWOOD = 47,
-	LOCH_MODAN = 48,
-	REDRIDGE_MOUNTAINS = 49,
-	NORTHERN_STRANGLETHORN = 50,
-	SWAMP_OF_SORROWS = 51,
-	WESTFALL = 52,
-	WETLANDS = 56,
-	TELDRASSIL = 57,
-	DARKSHORE = 62,
-	ASHENVALE = 63,
-	THOUSAND_NEEDLES = 64,
-	STONETALON_MOUNTAINS = 65,
-	DESOLACE = 66,
-	FERALAS = 69,
-	DUSTWALLOW_MARSH = 70,
-	TANARIS = 71,
-	CAVERNS_OF_TIME = 75,
-	AZSHARA = 76,
-	FELWOOD = 77,
-	UNGORO_CRATER = 78,
-	MOONGLADE = 80,
-	SILITHUS = 81,
-	WINTERSPRING = 83,
-	STORMWIND_CITY = 84,
-	ORGRIMMAR = 85,
-	IRONFORGE = 87,
-	THUNDER_BLUFF = 88,
-	DARNASSUS = 89,
-	UNDERCITY = { 90, 998 },
-	ALTERAC_MOUNTAINS = 36,
-	ALTERAC_VALLEY = 91,
-	ARATHI_BASIN = 93,
-	EVERSONG_WOODS = 94,
-	GHOSTLANDS = 95,
-	AZUREMYST_ISLE = 97,
-	HELLFIRE_PENINSULA = 100,
-	ZANGARMARSH = 102,
-	THE_EXODAR = 103,
-	SHADOWMOON_VALLEY_OUTLAND = 104,
-	BLADES_EDGE_MOUNTAINS = 105,
-	BLOODMYST_ISLE = 106,
-	NAGRAND_OUTLAND = 107,
-	TEROKKAR_FOREST = 108,
-	NETHERSTORM = 109,
-	SILVERMOON_CITY = 110,
-	SHATTRATH_CITY = 111,
-	BOREAN_TUNDRA = 114,
-	DRAGONBLIGHT = 115,
-	GRIZZLY_HILLS = 116,
-	HOWLING_FJORD = 117,
-	ICECROWN = 118,
-	SHOLAZAR_BASIN = 119,
-	THE_STORM_PEAKS = 120,
-	ZULDRAK = 121,
-	ISLE_OF_QUELDANAS = 122,
-	WINTERGRASP = 123,
-	PLAGUELANDS_THE_SCARLET_ENCLAVE = 124,
-	DALARAN_NORTHREND = 125,
-	CRYSTALSONG_FOREST = 127,
-	THE_NEXUS = 129,
-	THE_CULLING_OF_STRATHOLME = 130,
-	AHNKAHET_THE_OLD_KINGDOM = 132,
-	UTGARDE_KEEP = 133,
-	UTGARDE_PINNACLE = 136,
-	HALLS_OF_LIGHTNING = 138,
-	HALLS_OF_STONE = 140,
-	THE_EYE_OF_ETERNITY = 141,
-	THE_OCULUS = 142,
-	ULDUAR = 147,
-	GUNDRAK = 154,
-	THE_OBSIDIAN_SANCTUM = 155,
-	VAULT_OF_ARCHAVON = 156,
-	AZJOL_NERUB = 157,
-	DRAKTHARON_KEEP = 160,
-	NAXXRAMAS = 162,
-	THE_VIOLET_HOLD = 168,
-	TRIAL_OF_THE_CRUSADER = 172,
-	THE_LOST_ISLES = 174,
-	GILNEAS = 179,
-	THE_FORGE_OF_SOULS = 183,
-	ICECROWN_CITADEL = 186,
-	KEZAN = 194,
-	MOUNT_HYJAL = 198,
-	SOUTHERN_BARRENS = 199,
-	KELPTHAR_FOREST = 201,
-	GILNEAS_CITY = 202,
-	VASHJIR = 203,
-	ABYSSAL_DEPTHS = 204,
-	SHIMMERING_EXPANSE = 205,
-	DEEPHOLM = 207,
-	THE_CAPE_OF_STRANGLETHORN = 210,
-	RUINS_OF_GILNEAS = 217,
-	ZULFARRAK = 219,
-	THE_TEMPLE_OF_ATALHAKKAR = 220,
-	BLACKFATHOM_DEEPS = 221,
-	STRANGLETHORN_VALE = 224, --Need for Cape of Stranglethorn
-	GNOMEREGAN = 226,
-	ULDAMAN = 230,
-	MOLTEN_CORE = 232,
-	DIRE_MAUL = 234,
-	TWILIGHT_HIGHLANDS = 241,
-	BLACKROCK_DEPTHS = 242,
-	TOL_BARAD = 244,
-	TOL_BARAD_PENINSULA = 245,
-	THE_SHATTERED_HALLS = 246,
-	RUINS_OF_AHNQIRAJ = 247,
-	ONYXIAS_LAIR = 248,
-	ULDUM = { 249, 1527, },
-	BLACKROCK_SPIRE = 250,
-	AUCHENAI_CRYPTS = 256,
-	SETHEKK_HALLS = 258,
-	SHADOW_LABYRINTH = 260,
-	THE_BLOOD_FURNACE = 261,
-	THE_UNDERBOG = 262,
-	THE_STEAMVAULT = 263,
-	THE_SLAVE_PENS = 265,
-	THE_BOTANICA = 266,
-	THE_MECHANAR = 267,
-	THE_ARCATRAZ = 269,
-	MANA_TOMBS = 272,
-	THE_BLACK_MORASS = 273,
-	OLD_HILLSBRAD_FOOTHILLS = 274,
-	WAILING_CAVERNS = 279,
-	BLACKWING_DESCENT = 285,
-	BLACKWING_LAIR = 287,
-	THE_DEADMINES = 291,
-	THE_BASTION_OF_TWILIGHT = 294,
-	RAZORFEN_DOWNS = 300,
-	SCARLET_MONASTERY = 302,
-	SHADOWFANG_KEEP = 310,
-	STRATHOLME = 317,
-	AHNQIRAJ = 319,
-	THE_STONECORE = 324,
-	THE_VORTEX_PINNACLE = 325,
-	AHNQIRAJ_THE_FALLEN_KINGDOM = 327,
-	THRONE_OF_THE_FOUR_WINDS = 328,
-	GRUULS_LAIR = 330,
-	MAGTHERIDONS_LAIR = 331,
-	HYJAL_SUMMIT = 329,
-	SERPENTSHRINE_CAVERN = 332,
-	ZULAMAN = 333,
-	TEMPEST_KEEP = 334,
-	SUNWELL_PLATEAU = 335,
-	ZULGURUB = 337,
-	MOLTEN_FRONT = 338,
-	BLACK_TEMPLE = 339,
-	MAGISTERS_TERRACE = 348,
-	HELLFIRE_RAMPARTS = 347,
-	KARAZHAN = 350,
-	FIRELANDS = 367,
-	THE_JADE_FOREST = 371,
-	VALLEY_OF_THE_FOUR_WINDS = 376,
-	THE_WANDERING_ISLE = 378,
-	KUN_LAI_SUMMIT = 379,
-	TOWNLONG_STEPPES = 388,
-	VALE_OF_ETERNAL_BLOSSOMS = { 1530, 390, },
-	WELL_OF_ETERNITY = 398,
-	END_TIME = 401,
-	DARKMOON_ISLAND = 407,
-	DRAGON_SOUL = 409,
-
-	KRASARANG_WILDS = 418,
-	DREAD_WASTES = 422,
-	THE_VEILED_STAIR = 433,
-	TERRACE_OF_ENDLESS_SPRING = 456,
-	SUNSTRIDER_ISLE = 467,
-	AMMEN_VALE = 468,
-	NEW_TINKERTOWN = 469,
-	MOGUSHAN_VAULTS = 471,
-	HEART_OF_FEAR = 474,
-	SCHOLOMANCE = 476,
-	CRYPT_OF_FORGOTTEN_KINGS = 481,
-	DEEPRUN_TRAM = 499,
-	BRAWLGAR_ARENA = 503,
-	ISLE_OF_GIANTS = 507,
-	THRONE_OF_THUNDER = 508,
-	ISLE_OF_THUNDER = 516,
-	FROSTFIRE_RIDGE = 525,
-	TANAAN_JUNGLE = 534,
-	TALADOR = 535,
-	SHADOWMOON_VALLEY_DRAENOR = 539,
-	SPIRES_OF_ARAK = 542,
-	GORGROND = 543,
-	NAGRAND_DRAENOR = 550,
-	TIMELESS_ISLE = 554,
-	SIEGE_OF_ORGRIMMAR = 556,
-
-	LUNARFALL = { 582, 579, 580, 581, },
-	FROSTWALL = 590,
-	ASHRAN = 588,
-	IRON_DOCKS = 595,
-	BLACKROCK_FOUNDRY = 596,
-	SKYREACH = 601,
-	UPPER_BLACKROCK_SPIRE = 616,
-	STORMSHIELD = 622,
-	WARSPEAR = 624,
-	HELLFIRE_CITADEL = 661,
-
-	DALARAN_BROKENISLES = 627,
-	AZSUNA = 630,
-	STORMHEIM = 634,
-	VALSHARAH = 641,
-	BROKEN_SHORE = 646,
-	HELHEIM = 649,
-	HIGHMOUNTAIN = 650,
-	THUNDER_TOTEM = 652,
-	VAULT_OF_THE_WARDENS = 677,
-	SURAMAR = 680,
-	HELMOUTH_CLIFFS = 706,
-	EYE_OF_AZSHARA = 790,
-	NELTHARIONS_LAIR = 731,
-	VIOLET_HOLD = 723,
-	DARKHEART_THICKET = 733,
-	THE_ARCWAY = 749,
-	BLACK_ROOK_HOLD  = 751,
-	COURT_OF_STARS = 761,
-	THE_NIGHTHOLD = 764,
-	THE_EMERALD_NIGHTMARE = 777,
-	TRIAL_OF_VALOR = 806,
-	HALLS_OF_VALOR = 829,
-	TOMB_OF_SARGERAS = 850,
-	THE_DEATHS_OF_CHROMIE = 897,
-
-	KROKUUN = 830,
-	MACAREE = 882,
-	ANTORAN_WASTES = 885,
-	THE_SEAT_OF_THE_TRIUMVIRATE = 903,
-	RUINS_OF_LORDAERON = 908,
-	ANTORUS__THE_BURNING_THRONE = 909,
-
-	-- BFA
-	ZULDAZAR = 862,
-	NAZMIR = 863,
-	VOLDUN = 864,
-	TIRAGARDE_SOUND = 895,
-	DRUSTVAR = 896,
-	FREEHOLD = 936,
-	STORMSONG_VALLEY = 942,
-	KINGS_REST = 1004,
-	THE_MOTHERLODE = 1010,
-	WAYCREST_MANOR = 1015,
-	THE_UNDERROT = 1042,
-	ULDIR = 1148,
-	BORALUS = 1161,
-	DAZARALOR = 1165,
-	BATTLE_OF_DAZARALOR = 1352,
-	NAZJATAR = 1355,
-	CRUCIBLE_OF_STORMS = 1363,
-	MECHAGON_ISLAND = 1462,
-	OPERATION_MECHAGON = 1490,
-	THE_ETERNAL_PALACE = 1512,
-	NYALOTHA = 1580,
-
-	-- SHADOWLANDS
-	REVENDRETH = 1525,
-	BASTION = 1533,
-	MALDRAXXUS = 1536,
-	THE_MAW = 1543,
-	ARDENWEALD = 1565,
-	ORIBOS = 1670,
-	DE_OTHER_SIDE = 1680,
-	CASTLE_NATHRIA = 1735,
-	KORTHIA = 1961,
-	ZERETH_MORTIS = 1970,
-	SANCTUM_OF_DOMINATION = 1998,
-	SEPULCHER_OF_THE_FIRST_ONES = 2047,
-}
-
--- ============================================================================
--- Continent Data
--- Sequential continent IDs mapped to map IDs and names
--- Format: mapID, "Name" pairs for iteration
--- Note: Cosmic (946) and Azeroth (947) excluded to prevent UI display issues
--- ============================================================================
-local mapContinentData = {
-	12, "Kalimdor",
-	13, "Eastern Kingdoms",
-	101, "Outland",
-	113, "Northrend",
-	424, "Pandaria",
-	572, "Draenor",
-	619, "Broken Isles",
-	875, "Zandalar",
-	876, "Kul Tiras",
-	905, "Argus",
-	948, "The Maelstrom",
-	1550, "The Shadowlands",
-}
-
--- ============================================================================
--- Local Variables
--- ============================================================================
-local ZONE_NAMES = {}
-local ZONE_PARENTS = {}
-local PARENS_TEMPLATE = _G.PARENS_TEMPLATE or "(%s)"
+local HBD = _G.LibStub("HereBeDragons-2.0")
 local UNKNOWN = _G.UNKNOWN or "Unknown"
+local ZONE_REGISTRY = {
+	AHNQIRAJ = {name = "Ahn'Qiraj", areaIDs = {3428}, continent = 1, kind = "instance", parent = "KALIMDOR"},
+	ALTERAC_MOUNTAINS = {name = "Alterac Mountains", areaIDs = {36}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	ALTERAC_VALLEY = {name = "Alterac Valley", areaIDs = {2597}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	ARATHI_BASIN = {name = "Arathi Basin", areaIDs = {3358}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	ARATHI_HIGHLANDS = {name = "Arathi Highlands", areaIDs = {45}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	ASHENVALE = {name = "Ashenvale", areaIDs = {331, 16169}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	AZSHARA = {name = "Azshara", areaIDs = {16, 16003}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	BADLANDS = {name = "Badlands", areaIDs = {3}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	BATTLE_FOR_GILNEAS = {name = "Battle for Gilneas", areaIDs = {16653}, continent = 0, kind = "zone"},
+	BLACKFATHOM_DEEPS = {name = "Blackfathom Deeps", areaIDs = {719}, continent = 1, kind = "instance", parent = "KALIMDOR"},
+	BLACKROCK_DEPTHS = {name = "Blackrock Depths", areaIDs = {1584, 17803}, continent = 2, kind = "instance", parent = "BURNING_STEPPES", entrance = "20.72:36.94"},
+	BLACKROCK_MOUNTAIN = {name = "Blackrock Mountain", areaIDs = {25}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	BLACKROCK_SPIRE = {name = "Blackrock Spire", areaIDs = {1583, 17804}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	BLACKWING_LAIR = {name = "Blackwing Lair", areaIDs = {2677}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	BLASTED_LANDS = {name = "Blasted Lands", areaIDs = {4, 16115}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	BURNING_STEPPES = {name = "Burning Steppes", areaIDs = {46, 16508}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	CAVERNS_OF_TIME = {name = "Caverns of Time", areaIDs = {1941}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	CITY_OF_DALARAN = {name = "City of Dalaran", areaIDs = {16544, 16560}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	CRAFTING = {name = "Crafting", areaIDs = {16941}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS", internal = true},
+	DARKSHORE = {name = "Darkshore", areaIDs = {148}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	DARKSPEAR_ISLANDS = {name = "Darkspear Islands", areaIDs = {16606}, continent = 0, kind = "zone"},
+	DARNASSUS = {name = "Darnassus", areaIDs = {1657}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	DEADWIND_PASS = {name = "Deadwind Pass", areaIDs = {41, 16114}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	DEEPRUN_TRAM = {name = "Deeprun Tram", areaIDs = {2257}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	DEMON_FALL_CANYON = {name = "Demon Fall Canyon", areaIDs = {15475}, continent = 0, kind = "instance"},
+	DESOLACE = {name = "Desolace", areaIDs = {405, 16017}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	DIRE_MAUL = {name = "Dire Maul", areaIDs = {2557}, continent = 1, kind = "instance", parent = "FERALAS", entrance = "61.36:31.78"},
+	DUN_MOROGH = {name = "Dun Morogh", areaIDs = {1}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	DUROTAR = {name = "Durotar", areaIDs = {14}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	DUSKWOOD = {name = "Duskwood", areaIDs = {10, 16119, 16148}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	DUSTWALLOW_MARSH = {name = "Dustwallow Marsh", areaIDs = {15}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	EASTERN_KINGDOMS = {name = "Eastern Kingdoms", areaIDs = {}, continent = 2, kind = "continent"},
+	EASTERN_PLAGUELANDS = {name = "Eastern Plaguelands", areaIDs = {139, 16028}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	ELSEWHEN = {name = "Elsewhen", areaIDs = {15793}, continent = 0, kind = "instance"},
+	ELWYNN_FOREST = {name = "Elwynn Forest", areaIDs = {12, 16118, 16147, 16510}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	ELWYNN_FOREST_BLUE_WHELPLING_INN_PROTOTYPE = {name = "Elwynn Forest (Blue Whelpling Inn Prototype)", areaIDs = {16144}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS", internal = true},
+	EMERALD_FOREST = {name = "Emerald Forest", areaIDs = {1397}, continent = 0, kind = "instance"},
+	EXCAVATION_SITE_WETLANDS = {name = "Excavation Site: Wetlands", areaIDs = {16732}, continent = 2, kind = "instance", parent = "WETLANDS"},
+	FELWOOD = {name = "Felwood", areaIDs = {361, 15809}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	FERALAS = {name = "Feralas", areaIDs = {357, 16018}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	GILNEAS = {name = "Gilneas", areaIDs = {17065}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	GNOMEREGAN = {name = "Gnomeregan", areaIDs = {721}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	HALF_PINT_TAVERN = {name = "Half-Pint Tavern", areaIDs = {16632}, continent = 0, kind = "instance"},
+	HILLSBRAD_FOOTHILLS = {name = "Hillsbrad Foothills", areaIDs = {267, 16562}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	IRONFORGE = {name = "Ironforge", areaIDs = {1537}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	KALIMDOR = {name = "Kalimdor", areaIDs = {}, continent = 1, kind = "continent"},
+	KARAZHAN_CRYPTS = {name = "Karazhan Crypts", areaIDs = {16074}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	LOCH_MODAN = {name = "Loch Modan", areaIDs = {38}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	MANOR_MISTMANTLE = {name = "Manor Mistmantle", areaIDs = {17191}, continent = 0, kind = "instance"},
+	MARAUDON = {name = "Maraudon", areaIDs = {2100}, continent = 1, kind = "instance", parent = "KALIMDOR"},
+	MOLTEN_CORE = {name = "Molten Core", areaIDs = {2717}, continent = 2, kind = "instance", parent = "BURNING_STEPPES"},
+	MOONGLADE = {name = "Moonglade", areaIDs = {493}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	MOUNT_HYJAL = {name = "Mount Hyjal", areaIDs = {616, 16004}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	MULGORE = {name = "Mulgore", areaIDs = {215}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	NAXXRAMAS = {name = "Naxxramas", areaIDs = {3456, 16394}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	ONYXIAS_LAIR = {name = "Onyxia's Lair", areaIDs = {2159}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	ORGRIMMAR = {name = "Orgrimmar", areaIDs = {1637}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	RAGEFIRE_CHASM = {name = "Ragefire Chasm", areaIDs = {2437}, continent = 1, kind = "instance", parent = "KALIMDOR"},
+	RAZORFEN_DOWNS = {name = "Razorfen Downs", areaIDs = {722}, continent = 1, kind = "instance", parent = "KALIMDOR"},
+	RAZORFEN_KRAUL = {name = "Razorfen Kraul", areaIDs = {491}, continent = 1, kind = "instance", parent = "KALIMDOR"},
+	REDRIDGE_MOUNTAINS = {name = "Redridge Mountains", areaIDs = {44, 16113}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	RIVERGLADES = {name = "Riverglades", areaIDs = {16591}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	RUINS_OF_AHNQIRAJ = {name = "Ruins of Ahn'Qiraj", areaIDs = {3429}, continent = 1, kind = "instance", parent = "KALIMDOR"},
+	RUINS_OF_GILNEAS = {name = "Ruins of Gilneas", areaIDs = {16756}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	RUINS_OF_LORDAERON = {name = "Ruins of Lordaeron", areaIDs = {16611}, continent = 2, kind = "instance", parent = "TIRISFAL_GLADES"},
+	SCARLET_ENCLAVE = {name = "Scarlet Enclave", areaIDs = {16236}, continent = 0, kind = "instance"},
+	SCARLET_MONASTERY = {name = "Scarlet Monastery", areaIDs = {796}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	SCHOLOMANCE = {name = "Scholomance", areaIDs = {2057}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	SEARING_GORGE = {name = "Searing Gorge", areaIDs = {51}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	SHADOWFANG_KEEP = {name = "Shadowfang Keep", areaIDs = {209}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	SHADOW_HOLD = {name = "Shadow Hold", areaIDs = {16362}, continent = 0, kind = "instance"},
+	SHARK_INFESTED_WATERS = {name = "Shark-Infested Waters", areaIDs = {17066}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	SHENDRALAS = {name = "Shen'dralas", areaIDs = {16651}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	SILITHUS = {name = "Silithus", areaIDs = {1377}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	SILVERPINE_FOREST = {name = "Silverpine Forest", areaIDs = {130}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	STARFALL_VILLAGE = {name = "Starfall Village", areaIDs = {15938}, continent = 0, kind = "instance"},
+	STONETALON_MOUNTAINS = {name = "Stonetalon Mountains", areaIDs = {406}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	STORMRS_TEST_MAP = {name = "Stormr's Test Map", areaIDs = {16662}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS", internal = true},
+	STORMWIND_CITY = {name = "Stormwind City", areaIDs = {1519, 16509}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	STORM_CLIFFS = {name = "Storm Cliffs", areaIDs = {15532}, continent = 1, kind = "instance", parent = "AZSHARA"},
+	STRANGLETHORN_VALE = {name = "Stranglethorn Vale", areaIDs = {33, 16117}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	STRATHOLME = {name = "Stratholme", areaIDs = {2017}, continent = 2, kind = "instance", parent = "EASTERN_PLAGUELANDS", entrance = "26.75:11.60"},
+	SUNKEN_TEMPLE = {name = "Sunken Temple", areaIDs = {1417}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	SWAMP_OF_SORROWS = {name = "Swamp of Sorrows", areaIDs = {8, 16116}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	TANARIS = {name = "Tanaris", areaIDs = {440}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	TELDRASSIL = {name = "Teldrassil", areaIDs = {141}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	TEMPLE_OF_AHNQIRAJ = {name = "Temple of Ahn'Qiraj", areaIDs = {16076}, continent = 1, kind = "instance", parent = "KALIMDOR"},
+	TEST_DUNGEON = {name = "Test Dungeon", areaIDs = {13649}, continent = 0, kind = "instance", internal = true},
+	THE_BARRENS = {name = "The Barrens", areaIDs = {17}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	THE_BURNING_OF_ANDORHAL = {name = "The Burning of Andorhal", areaIDs = {15828}, continent = 0, kind = "instance"},
+	THE_CRYSTAL_VALE = {name = "The Crystal Vale", areaIDs = {15825}, continent = 0, kind = "instance"},
+	THE_DEADMINES = {name = "The Deadmines", areaIDs = {1581}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	THE_GREAT_SEA = {name = "The Great Sea", areaIDs = {207}, continent = 0, kind = "instance"},
+	THE_HALL_OF_THANES = {name = "The Hall of Thanes", areaIDs = {16919}, continent = 2, kind = "instance", parent = "IRONFORGE"},
+	THE_HINTERLANDS = {name = "The Hinterlands", areaIDs = {47, 16029}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	THE_SCARAB_DAIS = {name = "The Scarab Dais", areaIDs = {16295}, continent = 0, kind = "instance"},
+	THE_STOCKADE = {name = "The Stockade", areaIDs = {717}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	THE_TAINTED_SCAR = {name = "The Tainted Scar", areaIDs = {15531}, continent = 2, kind = "instance", parent = "BLASTED_LANDS"},
+	THE_TEMPLE_OF_ATALHAKKAR = {name = "The Temple of Atal'Hakkar", areaIDs = {1477}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	THE_VEILED_SEA = {name = "The Veiled Sea", areaIDs = {457}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	THOUSAND_NEEDLES = {name = "Thousand Needles", areaIDs = {400}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	THUNDER_BLUFF = {name = "Thunder Bluff", areaIDs = {1638}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	TIRISFAL_GLADES = {name = "Tirisfal Glades", areaIDs = {85}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	TYLERS_TEST_MAP_DESOLACE = {name = "Tyler's Test Map (Desolace)", areaIDs = {16532}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS", internal = true},
+	ULDAMAN = {name = "Uldaman", areaIDs = {1337}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	UNDERCITY = {name = "Undercity", areaIDs = {1497}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	UNGORO_CRATER = {name = "Un'Goro Crater", areaIDs = {490}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	UNUSED = {name = "Unused", areaIDs = {16772}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS", internal = true},
+	WAILING_CAVERNS = {name = "Wailing Caverns", areaIDs = {718}, continent = 1, kind = "instance", parent = "KALIMDOR"},
+	WARSONG_GULCH = {name = "Warsong Gulch", areaIDs = {3277, 16603}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	WESTERN_PLAGUELANDS = {name = "Western Plaguelands", areaIDs = {28}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	WESTFALL = {name = "Westfall", areaIDs = {40, 16149}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	WETLANDS = {name = "Wetlands", areaIDs = {11}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	WHELGARS_EXCAVATION_SITE = {name = "Whelgar's Excavation Site", areaIDs = {16876}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
+	WINTERSPRING = {name = "Winterspring", areaIDs = {618}, continent = 1, kind = "zone", parent = "KALIMDOR"},
+	ZEPHRAS_ISLE = {name = "Zephras Isle", areaIDs = {16593}, continent = 0, kind = "zone"},
+	ZULFARRAK = {name = "Zul'Farrak", areaIDs = {1176}, continent = 1, kind = "instance", parent = "KALIMDOR"},
+	ZULGURUB = {name = "Zul'Gurub", areaIDs = {1977}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+}
+private.ZONE_REGISTRY = ZONE_REGISTRY
 
--- ============================================================================
--- Helper Functions
--- ============================================================================
-
---- Convert a zone label to human-readable name
---- "SHADOWMOON_VALLEY_OUTLAND" -> "Shadowmoon Valley (Outland)"
---- @param label string The zone label from ZONE_MAP_IDS
---- @return string pretty The formatted zone name
-local function PrettyNameFromLabel(label)
-	if not label or type(label) ~= "string" then
-		return UNKNOWN
-	end
-
-	local suffixToContinent = {
-		_OUTLAND = "Outland",
-		_DRAENOR = "Draenor",
-		_NORTHREND = "Northrend",
-		_BROKENISLES = "Broken Isles",
-		_BROKEN_ISLES = "Broken Isles",
-		_PANDARIA = "Pandaria",
-	}
-
-	local continentSuffix, continentPretty
-	for suffix, pretty in pairs(suffixToContinent) do
-		if label:sub(-#suffix) == suffix then
-			continentSuffix = suffix
-			continentPretty = pretty
-			break
-		end
-	end
-
-	local baseLabel = label
-	if continentSuffix then
-		baseLabel = label:sub(1, #label - #continentSuffix)
-		if baseLabel:sub(-1) == "_" then
-			baseLabel = baseLabel:sub(1, #baseLabel - 1)
-		end
-	end
-
-	local smallWords = {
-		of = true, the = true, ["and"] = true, ["in"] = true, on = true,
-		at = true, to = true, ["for"] = true, ["with"] = true, ["by"] = true, from = true,
-	}
-
-	local words = {}
-	for part in baseLabel:gmatch("[^_]+") do
-		local lower = part:lower()
-		local word
-		if #words > 0 and smallWords[lower] then
-			word = lower
-		else
-			word = lower:gsub("^%l", string.upper)
-		end
-		table.insert(words, word)
-	end
-
-	local pretty = table.concat(words, " ")
-	if continentPretty then
-		return ("%s %s"):format(pretty, PARENS_TEMPLATE:format(continentPretty))
-	end
-	return pretty
+local function Normalize(name)
+	return name and name:lower():gsub("[^%w]", "")
 end
 
---- Get localized map name safely via HereBeDragons
---- @param mapID number The map ID to look up
---- @return string name The localized name or UNKNOWN
-local function SafeMapName(mapID)
-	if not mapID then
-		return UNKNOWN
+-- Build one English-name index. Lookup and localization are cached afterwards.
+local mapData = HBD.mapData or {}
+local mapsByName, mapsByLocalizedName, localizedNames = {}, {}, {}
+for mapID, data in pairs(mapData) do
+	local key = Normalize(data.name)
+	if key then
+		mapsByName[key] = mapsByName[key] or {}
+		mapsByName[key][#mapsByName[key] + 1] = mapID
 	end
-	local name = HBD:GetLocalizedMap(mapID)
-	return name or UNKNOWN
 end
-
--- ============================================================================
--- Zone Name Initialization
--- Build ZONE_NAMES lookup table from ZONE_MAP_IDS using HBD for localization
--- ============================================================================
-
-for zoneLabel, mapID in pairs(ZONE_MAP_IDS) do
-	if type(mapID) == "table" then
-		local name
-		for i = 1, #mapID do
-			name = SafeMapName(mapID[i])
-			if name and name ~= UNKNOWN then break end
-		end
-		ZONE_NAMES[zoneLabel] = (name and name ~= UNKNOWN) and name or PrettyNameFromLabel(zoneLabel)
-	else
-		local name = SafeMapName(mapID)
-		ZONE_NAMES[zoneLabel] = (name and name ~= UNKNOWN) and name or PrettyNameFromLabel(zoneLabel)
+local function MapName(mapID)
+	if localizedNames[mapID] == nil then
+		localizedNames[mapID] = HBD:GetLocalizedMap(mapID) or false
+	end
+	return localizedNames[mapID] or nil
+end
+for mapID in pairs(mapData) do
+	local key = Normalize(MapName(mapID))
+	if key then
+		mapsByLocalizedName[key] = mapsByLocalizedName[key] or {}
+		mapsByLocalizedName[key][#mapsByLocalizedName[key] + 1] = mapID
 	end
 end
 
--- Fallback names for continents/capitals when HBD returns no data
-do
-	local CONTINENT_FALLBACK_NAMES = {
-		KALIMDOR = "Kalimdor",
-		EASTERN_KINGDOMS = "Eastern Kingdoms",
-		OUTLAND = "Outland",
-		NORTHREND = "Northrend",
-		PANDARIA = "Pandaria",
-		DRAENOR = "Draenor",
-		BROKEN_ISLES = "Broken Isles",
-	}
-	for label, fallback in pairs(CONTINENT_FALLBACK_NAMES) do
-		if not ZONE_NAMES[label] or ZONE_NAMES[label] == UNKNOWN then
-			ZONE_NAMES[label] = fallback
+local uiMapType = (_G.Enum and _G.Enum.UIMapType) or {}
+local continentType, zoneType, dungeonType = uiMapType.Continent or 2, uiMapType.Zone or 3, uiMapType.Dungeon or 4
+local ZONE_MAP_IDS, ZONE_NAMES, ZONE_LABELS_FROM_NAME = {}, {}, {}
+local ZONE_LABELS_FROM_MAP_ID, continentCache = {}, {}
+local continentLabels = {[1] = "KALIMDOR", [2] = "EASTERN_KINGDOMS"}
+
+local function ContinentForMap(mapID)
+	if not mapID then return 0 end
+	if continentCache[mapID] ~= nil then return continentCache[mapID] end
+	local seen, current, result = {}, mapID, 0
+	while current and not seen[current] do
+		seen[current] = true
+		if current == ZONE_MAP_IDS.KALIMDOR then result = 1; break end
+		if current == ZONE_MAP_IDS.EASTERN_KINGDOMS then result = 2; break end
+		if continentCache[current] ~= nil then result = continentCache[current]; break end
+		current = mapData[current] and mapData[current].parent
+	end
+	for id in pairs(seen) do continentCache[id] = result end
+	return result
+end
+
+local function ResolveMap(entry)
+	local candidates = mapsByName[Normalize(entry.name)] or {}
+	if #candidates == 0 and _G.C_Map and _G.C_Map.GetAreaInfo then
+		-- The registry stores English names, while HereBeDragons may expose
+		-- localized map names. Resolve through the localized area names only
+		-- when the stable English lookup did not find a map.
+		for _, areaID in ipairs(entry.areaIDs or {}) do
+			local areaName = _G.C_Map.GetAreaInfo(areaID)
+			local localizedCandidates = areaName and mapsByLocalizedName[Normalize(areaName)]
+			if localizedCandidates then
+				candidates = localizedCandidates
+				break
+			end
 		end
 	end
-
-	local CAPITAL_FALLBACK_NAMES = {
-		UNDERCITY = "Undercity",
-		STORMWIND_CITY = "Stormwind City",
-		ORGRIMMAR = "Orgrimmar",
-		IRONFORGE = "Ironforge",
-		DARNASSUS = "Darnassus",
-		THUNDER_BLUFF = "Thunder Bluff",
-		SILVERMOON_CITY = "Silvermoon City",
-		THE_EXODAR = "The Exodar",
-		WARSPEAR = "Warspear",
-		STORMSHIELD = "Stormshield",
-		KRASARANG_WILDS = "Krasarang Wilds",
-	}
-	for label, fallback in pairs(CAPITAL_FALLBACK_NAMES) do
-		if not ZONE_NAMES[label] or ZONE_NAMES[label] == UNKNOWN then
-			ZONE_NAMES[label] = fallback
+	local bestID, bestScore
+	for _, mapID in ipairs(candidates) do
+		local data = mapData[mapID]
+		local allowed = entry.kind == "continent" and data.mapType == continentType
+			or entry.kind ~= "continent" and type(data.mapType) == "number" and data.mapType >= zoneType
+		if allowed then
+			local continent = entry.kind ~= "continent" and ContinentForMap(mapID) or 0
+			if not entry.continent or entry.continent == 0 or continent == 0 or continent == entry.continent then
+				local expectedType = entry.kind == "instance" and dungeonType or zoneType
+				local score = (data.mapType == expectedType and 8 or 0) + (continent > 0 and 4 or 0)
+				if not bestScore or score > bestScore or score == bestScore and mapID < bestID then
+					bestID, bestScore = mapID, score
+				end
+			end
 		end
+	end
+	return bestID
+end
+
+-- Resolve continents first so all remaining geography checks share their cache.
+for _, label in ipairs(continentLabels) do
+	ZONE_MAP_IDS[label] = ResolveMap(ZONE_REGISTRY[label])
+end
+for label, entry in pairs(ZONE_REGISTRY) do
+	if not entry.internal then
+		local mapID = ZONE_MAP_IDS[label] or ResolveMap(entry)
+		ZONE_MAP_IDS[label] = mapID
+		local name = mapID and MapName(mapID) or entry.name
+		ZONE_NAMES[label] = name
+		ZONE_LABELS_FROM_NAME[name] = label
+		if mapID then ZONE_LABELS_FROM_MAP_ID[mapID] = label end
 	end
 end
 
 private.ZONE_NAMES = ZONE_NAMES
 private.constants.ZONE_NAMES = ZONE_NAMES
-
--- Disambiguated zones with multiple versions (e.g., Shadowmoon Valley Outland vs Draenor)
-local specialLabels = {
-	"SHADOWMOON_VALLEY_OUTLAND",
-	"SHADOWMOON_VALLEY_DRAENOR",
-	"NAGRAND_OUTLAND",
-	"NAGRAND_DRAENOR",
-	"DALARAN_NORTHREND",
-	"DALARAN_BROKENISLES",
-}
-for i = 1, #specialLabels do
-	local label = specialLabels[i]
-	if not ZONE_NAMES[label] or ZONE_NAMES[label] == UNKNOWN then
-		ZONE_NAMES[label] = PrettyNameFromLabel(label)
-	end
-end
-
--- Reverse lookup tables
-local ZONE_LABELS_FROM_NAME = {}
+private.ZONE_MAP_IDS = ZONE_MAP_IDS
 private.ZONE_LABELS_FROM_NAME = ZONE_LABELS_FROM_NAME
-
-local ZONE_LABELS_FROM_MAP_ID = {}
-
-for label, name in pairs(ZONE_NAMES) do
-	ZONE_LABELS_FROM_NAME[name] = label
-
-	local mapIDValue = ZONE_MAP_IDS[label]
-	if type(mapIDValue) == "table" then
-		for mapIDIndex = 1, #mapIDValue do
-			ZONE_LABELS_FROM_MAP_ID[mapIDValue[mapIDIndex]] = label
-		end
-	else
-		ZONE_LABELS_FROM_MAP_ID[mapIDValue] = label
+private.WOWHEAD_ZONE_LABELS_FROM_ID = {}
+private.WOWHEAD_ZONE_NAMES_FROM_ID = {}
+for label, entry in pairs(ZONE_REGISTRY) do
+	for _, areaID in ipairs(entry.areaIDs) do
+		private.WOWHEAD_ZONE_LABELS_FROM_ID[areaID] = label
+		private.WOWHEAD_ZONE_NAMES_FROM_ID[areaID] = ZONE_NAMES[label] or entry.name
 	end
 end
-
--- ============================================================================
--- Cosmic Map IDs
--- Zones with parent=0 in HBD data that need explicit parent mapping
--- Required for proper waypoint placement and location hierarchy
--- ============================================================================
-local COSMIC_MAP_IDS = {
-	TELDRASSIL = 57,
-	DARNASSUS = 89,
-	UNDERCITY = 90,
-	SHATTRATH_CITY = 111,
-	ZANGARMARSH = 102,
-	NAGRAND_OUTLAND = 107,
-	SHADOWMOON_VALLEY_OUTLAND = 104,
-	HELLFIRE_PENINSULA = 100,
-	TEROKKAR_FOREST = 108,
-	BLADES_EDGE_MOUNTAINS = 105,
-	NETHERSTORM = 109,
-	ULDUM = 249,
-	THE_WANDERING_ISLE = 378,
-	VALE_OF_ETERNAL_BLOSSOMS = 390,
-	DARKMOON_ISLAND = 407,
-	MOGUSHAN_VAULTS = 471,
-	HELLFIRE_RAMPARTS = 347,
-	THE_BOTANICA = 266,
-	THE_MECHANAR = 267,
-	THE_ARCATRAZ = 269,
-	THE_BLOOD_FURNACE = 261,
-	THE_SHATTERED_HALLS = 246,
-	AUCHENAI_CRYPTS = 256,
-	MANA_TOMBS = 272,
-	SETHEKK_HALLS = 258,
-	SHADOW_LABYRINTH = 260,
-	THE_SLAVE_PENS = 265,
-	THE_STEAMVAULT = 263,
-	THE_UNDERBOG = 262,
-	GRUULS_LAIR = 330,
-	MAGTHERIDONS_LAIR = 331,
-	SERPENTSHRINE_CAVERN = 332,
-	TEMPEST_KEEP = 334,
-	BLACK_TEMPLE = 339,
-	SUNWELL_PLATEAU = 335,
-	LUNARFALL = 582,
-	FROSTWALL = 590,
-	STORMSHIELD = 622,
-	WARSPEAR = 624,
-	NELTHARIONS_LAIR = 731,
-	DARKHEART_THICKET = 733,
-	NAZJATAR = 1355,
-	THE_ETERNAL_PALACE = 1512,
-	NYALOTHA = 1580,
-	KORTHIA = 1961,
-	SANCTUM_OF_DOMINATION = 1998,
-	KRASARANG_WILDS = 418,
-	STORMHEIM = 634,
-}
-
--- Parent zone mapping for cosmic maps
-local COSMIC_MAP_LOCATION_PARENT_MAPPING = {
-	ALTERAC_MOUNTAINS = ZONE_NAMES.EASTERN_KINGDOMS,
-	TELDRASSIL = ZONE_NAMES.KALIMDOR,
-	DARNASSUS = ZONE_NAMES.KALIMDOR,
-	UNDERCITY = ZONE_NAMES.EASTERN_KINGDOMS,
-	SHATTRATH_CITY = ZONE_NAMES.OUTLAND,
-	ZANGARMARSH = ZONE_NAMES.OUTLAND,
-	NAGRAND_OUTLAND = ZONE_NAMES.OUTLAND,
-	SHADOWMOON_VALLEY_OUTLAND = ZONE_NAMES.OUTLAND,
-	HELLFIRE_PENINSULA = ZONE_NAMES.OUTLAND,
-	TEROKKAR_FOREST = ZONE_NAMES.OUTLAND,
-	BLADES_EDGE_MOUNTAINS = ZONE_NAMES.OUTLAND,
-	NETHERSTORM = ZONE_NAMES.OUTLAND,
-	THE_BLACK_MORASS = ZONE_NAMES.TANARIS,
-	OLD_HILLSBRAD_FOOTHILLS = ZONE_NAMES.TANARIS,
-	HYJAL_SUMMIT = ZONE_NAMES.TANARIS,
-	THE_BOTANICA = ZONE_NAMES.NETHERSTORM,
-	THE_MECHANAR = ZONE_NAMES.NETHERSTORM,
-	THE_ARCATRAZ = ZONE_NAMES.NETHERSTORM,
-	HELLFIRE_RAMPARTS = ZONE_NAMES.HELLFIRE_PENINSULA,
-	THE_BLOOD_FURNACE = ZONE_NAMES.HELLFIRE_PENINSULA,
-	THE_SHATTERED_HALLS = ZONE_NAMES.HELLFIRE_PENINSULA,
-	AUCHENAI_CRYPTS = ZONE_NAMES.TEROKKAR_FOREST,
-	MANA_TOMBS = ZONE_NAMES.TEROKKAR_FOREST,
-	SETHEKK_HALLS = ZONE_NAMES.TEROKKAR_FOREST,
-	SHADOW_LABYRINTH = ZONE_NAMES.TEROKKAR_FOREST,
-	THE_SLAVE_PENS = ZONE_NAMES.ZANGARMARSH,
-	THE_STEAMVAULT = ZONE_NAMES.ZANGARMARSH,
-	THE_UNDERBOG = ZONE_NAMES.ZANGARMARSH,
-	GRUULS_LAIR = ZONE_NAMES.BLADES_EDGE_MOUNTAINS,
-	MAGTHERIDONS_LAIR = ZONE_NAMES.HELLFIRE_PENINSULA,
-	SERPENTSHRINE_CAVERN = ZONE_NAMES.ZANGARMARSH,
-	TEMPEST_KEEP = ZONE_NAMES.NETHERSTORM,
-	BLACK_TEMPLE = ZONE_NAMES.SHADOWMOON_VALLEY_OUTLAND,
-	SUNWELL_PLATEAU = ZONE_NAMES.ISLE_OF_QUELDANAS,
-	THE_WANDERING_ISLE = ZONE_NAMES.THE_MAELSTROM,
-	DARKMOON_ISLAND = ZONE_NAMES.THE_MAELSTROM,
-	MOLTEN_CORE = ZONE_NAMES.BURNING_STEPPES,
-	NORTHERN_BARRENS = ZONE_NAMES.KALIMDOR,
-	THE_BARRENS = ZONE_NAMES.KALIMDOR,
-	SOUTHERN_BARRENS = ZONE_NAMES.KALIMDOR,
-	LUNARFALL = ZONE_NAMES.SHADOWMOON_VALLEY_DRAENOR,
-	FROSTWALL = ZONE_NAMES.FROSTFIRE_RIDGE,
-	STORMSHIELD = ZONE_NAMES.ASHRAN,
-	WARSPEAR = ZONE_NAMES.ASHRAN,
-	NAZJATAR = ZONE_NAMES.KUL_TIRAS,
-	MOGUSHAN_VAULTS = ZONE_NAMES.KUN_LAI_SUMMIT,
-	NELTHARIONS_LAIR = ZONE_NAMES.HIGHMOUNTAIN,
-	DARKHEART_THICKET = ZONE_NAMES.VALSHARAH,
-	THE_ETERNAL_PALACE = ZONE_NAMES.KUL_TIRAS,
-	NYALOTHA = ZONE_NAMES.ULDUM,
-	KORTHIA = ZONE_NAMES.THE_SHADOWLANDS,
-	THE_MAW = ZONE_NAMES.THE_SHADOWLANDS,
-	SANCTUM_OF_DOMINATION = ZONE_NAMES.THE_SHADOWLANDS,
-	KRASARANG_WILDS = ZONE_NAMES.PANDARIA,
-	STORMHEIM = ZONE_NAMES.BROKEN_ISLES,
-	VALE_OF_ETERNAL_BLOSSOMS = ZONE_NAMES.PANDARIA,
-	ULDUM = ZONE_NAMES.KALIMDOR,
-}
-
--- ============================================================================
--- Instance Entrance Coordinates
--- Format: "x:y" relative to parent zone (0-100 scale)
--- Used for waypoint placement at dungeon/raid entrances
--- ============================================================================
-local INSTANCE_ENTRANCE_COORDINATES = {
-	AHNKAHET_THE_OLD_KINGDOM = "28.49:51.73",
-	AHNQIRAJ_THE_FALLEN_KINGDOM = "23.2:86.1",
-	AUCHENAI_CRYPTS = "34.32:65.62",
-	AZJOL_NERUB = "26.01:50.83",
-	BLACK_ROOK_HOLD = "37.0:50.3",
-	BLACKROCK_DEPTHS = "20.72:36.94", -- TODO: Double check BLACKROCK_DEPTHS, BLACKROCK_SPIRE, and BLACKWING_LAIR - their coordinates are identical.
-	BLACKROCK_SPIRE = "20.72:36.94",
-	BLACKWING_LAIR = "20.72:36.94",
-	COURT_OF_STARS = "50.3:65.3",
-	DE_OTHER_SIDE = "68.4:66.2",
-	DIRE_MAUL = "61.36:31.78",
-	DRAKTHARON_KEEP = "71.5:22.4",
-	FIRELANDS = "46.5:79.8",
-	GNOMEREGAN = "31.29:37.89",
-	HALLS_OF_LIGHTNING = "45.40:21.37",
-	HALLS_OF_STONE = "39.49:26.92",
-	HELLFIRE_CITADEL = "46.5:53.2",
-	KARAZHAN = "46.85:74.66",
-	MAGISTERS_TERRACE = "61.20:30.89",
-	MANA_TOMBS = "39.64:57.65",
-	MOGUSHAN_VAULTS = "80.7:32.8",
-	MOLTEN_CORE = "20.72:36.94",
-	NYALOTHA = "55.2:43.9",
-	OLD_HILLSBRAD_FOOTHILLS = "64.4:47.9",
-	ONYXIAS_LAIR = "52.9:77.7",
-	RUINS_OF_AHNQIRAJ = "36.2:93.8",
-	SANCTUM_OF_DOMINATION = "69.6:31.7",
-	SCHOLOMANCE = "70.7:70.7",
-	SETHEKK_HALLS = "44.95:65.61",
-	SHADOW_LABYRINTH = "39.64:73.58",
-	SKYREACH = "36.0:33.9",
-	STRATHOLME = "26.75:11.60",
-	THE_ARCWAY = "43.0:61.7",
-	THE_ARCATRAZ = "74.41:57.72",
-	THE_BLACK_MORASS = "64.4:47.9",
-	THE_BOTANICA = "71.77:54.92",
-	THE_DEADMINES = "38.23:77.47",
-	THE_ETERNAL_PALACE = "50.3:9.8", -- Needs updating
-	THE_MECHANAR = "70.62:69.77",
-	THE_NEXUS = "27.50:25.97",
-	THE_OCULUS = "27.52:26.71",
-	THE_SHATTERED_HALLS = "47.50:52.04",
-	THE_SLAVE_PENS = "48.95:35.70",
-	THE_STEAMVAULT = "50.29:33.32",
-	THE_TEMPLE_OF_ATALHAKKAR = "76.03:45.23",
-	THE_VIOLET_HOLD = "66.78:68.19",
-	TRIAL_OF_THE_CRUSADER = "75.0:21.8",
-	UTGARDE_KEEP = "57.28:46.73",
-	UTGARDE_PINNACLE = "57.26:46.67"
-}
-
--- ============================================================================
--- Location Object
--- Represents a zone/location with parent/child relationships
--- ============================================================================
 
 local Location = {}
-local LocationMetatable = {
-	__index = Location,
-}
-
--- Storage tables
-local Locations = {}
+local LocationMetatable = {__index = Location}
+local Locations, LocationsByLocalizedName, LocationsByMapID = {}, {}, {}
+local locationsByLabel, ContinentLocationByID = {}, {}
 private.Locations = Locations
-
-local LocationsByLocalizedName = {}
 private.LocationsByLocalizedName = LocationsByLocalizedName
-
-local LocationsByMapID = {}
 private.LocationsByMapID = LocationsByMapID
-
-local ContinentLocationByID = {}
 private.ContinentLocationByID = ContinentLocationByID
 
--- ============================================================================
--- Location Methods
--- ============================================================================
-
-function Location:AssignRecipe(recipe, affiliation)
-	self._recipes[recipe] = affiliation
-end
-
-function Location:ContinentID()
-	return self._continentID
-end
-
+function Location:AssignRecipe(recipe, affiliation) self._recipes[recipe] = affiliation end
+function Location:ContinentID() return self._continentID end
 function Location:EntranceCoordinates()
-	local coordinates = self._entranceCoordinates
-	if coordinates then
-		local x, y = (":"):split(coordinates)
-		return tonumber(x), tonumber(y)
+	if self._entranceCoordinates then
+		local x, y = self._entranceCoordinates:match("^([%d.]+):([%d.]+)$")
+		return tonumber(x) or 0, tonumber(y) or 0
 	end
 	return 0, 0
 end
-
-function Location:GetRecipeAffiliation(recipe)
-	return self._recipes[recipe]
-end
-
-function Location:GetSortedRecipes()
-	return private.SortRecipePairs(self._recipes)
-end
-
-function Location:HasRecipe(recipe)
-	return self._recipes[recipe]
-end
-
-function Location:Label()
-	return self._label
-end
-
-function Location:LocalizedName()
-	return self._localizedName
-end
-
-function Location:MapID()
-	return self._mapID
-end
-
---- Get a validated map ID, falling back to HBD lookup if stored ID is invalid
---- @return number|nil mapID A valid map ID or nil if not found
+function Location:GetRecipeAffiliation(recipe) return self._recipes[recipe] end
+function Location:GetSortedRecipes() return private.SortRecipePairs(self._recipes) end
+function Location:HasRecipe(recipe) return self._recipes[recipe] end
+function Location:Label() return self._label end
+function Location:LocalizedName() return self._localizedName end
+function Location:MapID() return self._mapID end
+function Location:Name() return self._name end
+function Location:Parent() return self._parent end
+function Location:RecipePairs() return pairs(self._recipes) end
 function Location:GetValidMapID()
-	local mapID = self._mapID
-
-	if mapID and mapID > 0 then
-		local name = HBD:GetLocalizedMap(mapID)
-		if name then
-			return mapID
-		end
-	end
-
-	if self._localizedName then
-		local searchName = self._localizedName:lower()
-		local allMapIDs = HBD:GetAllMapIDs()
-
-		for _, id in ipairs(allMapIDs) do
-			local mapName = HBD:GetLocalizedMap(id)
-			if mapName and mapName:lower() == searchName then
-				return id
-			end
-		end
-	end
-
-	local parent = self:Parent()
-	if parent then
-		return parent:GetValidMapID()
-	end
-
+	if self._mapID and self._mapID > 0 then return self._mapID end
+	if self._entranceCoordinates and self._parent then return self._parent:GetValidMapID() end
 	return nil
 end
 
-function Location:Name()
-	return self._name
-end
-
-function Location:Parent()
-	return self._parent
-end
-
-function Location:RecipePairs()
-	return pairs(self._recipes)
-end
-
--- ============================================================================
--- Location Instantiation
--- ============================================================================
-
---- Create a Location object from mapID
---- @param continentID number The sequential continent ID
---- @param mapID number The map ID
---- @param parentLocation table|nil Optional parent Location
---- @return table|nil location The created Location or nil
-local function AddLocation(continentID, mapID, parentLocation)
-	local zoneLabel = ZONE_LABELS_FROM_MAP_ID[mapID]
-	if not zoneLabel then
-		return nil
-	end
-
-	-- Generate TitleCase key for lookup: "SHADOWMOON_VALLEY_DRAENOR" -> "ShadowmoonValleyDraenor"
-	local zoneName = zoneLabel:lower():gsub("^%l", string.upper):gsub("_%l", string.upper):gsub("_", "")
-	local localizedName = ZONE_NAMES[zoneLabel]
-	if not localizedName or localizedName == UNKNOWN then
-		localizedName = PrettyNameFromLabel(zoneLabel)
-		ZONE_NAMES[zoneLabel] = localizedName
-	end
-
-	local location = _G.setmetatable({
-		_continentID = continentID,
-		_entranceCoordinates = INSTANCE_ENTRANCE_COORDINATES[zoneLabel],
-		_label = zoneLabel,
-		_localizedName = localizedName,
-		_mapID = mapID,
-		_name = zoneName,
-		_parent = parentLocation,
-		_recipes = {},
-	}, LocationMetatable)
-
-	Locations[zoneName] = location
-	LocationsByLocalizedName[localizedName] = location
-	LocationsByMapID[mapID] = location
-
-	if parentLocation then
-		parentLocation._childLocations = parentLocation._childLocations or {}
-		parentLocation._childLocations[zoneName] = location
-
-		parentLocation._childLocationsByLocalizedName = parentLocation._childLocationsByLocalizedName or {}
-		parentLocation._childLocationsByLocalizedName[localizedName] = location
-	end
-
-	return location
-end
-
--- ============================================================================
--- Fallback Location Creation
--- Creates a minimal Location object when a zone name is referenced but not found
--- in the pre-built Locations tables. Uses HereBeDragons to resolve mapID.
--- ============================================================================
-
---- Convert a localized zone name to a Location key
---- "Stormwind City" -> "StormwindCity"
---- @param name string The localized zone name
---- @return string key The generated key
 local function KeyFromLocalized(name)
-	if not name or type(name) ~= "string" then
-		return "Unknown"
+	local words = {}
+	for word in name:gsub("[^%w]+", " "):gmatch("%S+") do
+		words[#words + 1] = word:sub(1, 1):upper() .. word:sub(2):lower()
 	end
-	local key = name:gsub("[^%w]+", " ")
-	local buff = {}
-	for word in key:gmatch("%S+") do
-		buff[#buff + 1] = word:sub(1, 1):upper() .. word:sub(2):lower()
-	end
-	return table.concat(buff, "")
+	return table.concat(words, "")
 end
 
---- Ensure a Location exists for the given localized name
---- Called when recipe modules reference zones not in ZONE_MAP_IDS
---- Uses HereBeDragons database to resolve mapID for waypoint support
---- @param localizedName string The localized zone name
---- @return table location The existing or newly created Location
-function private.EnsureLocationByLocalizedName(localizedName)
-	if LocationsByLocalizedName[localizedName] then
-		return LocationsByLocalizedName[localizedName]
-	end
-
-	local key = KeyFromLocalized(localizedName)
-
-	-- Try to resolve mapID via HereBeDragons database
-	local resolvedMapID
-	local searchName = localizedName and localizedName:lower()
-	if searchName then
-		local allMapIDs = HBD:GetAllMapIDs()
-		for _, mapID in ipairs(allMapIDs) do
-			local mapName = HBD:GetLocalizedMap(mapID)
-			if mapName and mapName:lower() == searchName then
-				resolvedMapID = mapID
-				break
-			end
-		end
-	end
-
-	local location = _G.setmetatable({
-		_continentID = 0,
-		_entranceCoordinates = nil,
-		_label = nil,
-		_localizedName = localizedName or UNKNOWN,
-		_mapID = resolvedMapID or -1,
-		_name = key,
-		_parent = nil,
-		_recipes = {},
+local function CreateLocation(label, name, mapID, continent)
+	local key = label and label:lower():gsub("^%l", string.upper):gsub("_%l", string.upper):gsub("_", "") or KeyFromLocalized(name)
+	if Locations[key] and Locations[key]._localizedName ~= name then key = key .. tostring(mapID or -1) end
+	local location = setmetatable({
+		_label = label, _localizedName = name, _name = key, _mapID = mapID or -1,
+		_continentID = continent or 0, _recipes = {},
 	}, LocationMetatable)
-
 	Locations[key] = location
-	LocationsByLocalizedName[localizedName] = location
+	LocationsByLocalizedName[name] = location
+	if label then locationsByLabel[label] = location end
+	if mapID then LocationsByMapID[mapID] = location end
 	return location
 end
 
---- Recursively add child zones using HBD parent relationships
---- @param parentLocation table The parent Location to process
-local function AddSubzoneLocations(parentLocation)
-	if not parentLocation then
-		return
+local function AttachParent(location, parent)
+	if not parent or parent == location then return end
+	local seen, current = {}, parent
+	while current do
+		if current == location or seen[current] then return end
+		seen[current] = true
+		current = current._parent
 	end
-	local parentMapID = parentLocation._mapID
-	if not parentMapID then
-		return
+	location._parent = parent
+	parent._childLocations = parent._childLocations or {}
+	parent._childLocations[location._name] = location
+	parent._childLocationsByLocalizedName = parent._childLocationsByLocalizedName or {}
+	parent._childLocationsByLocalizedName[location._localizedName] = location
+end
+
+local function RegisteredMapParent(mapID)
+	local seen = {}
+	local current = mapData[mapID] and mapData[mapID].parent
+	while current and not seen[current] do
+		seen[current] = true
+		if LocationsByMapID[current] then return LocationsByMapID[current] end
+		current = mapData[current] and mapData[current].parent
 	end
-	local allMapIDs = HBD:GetAllMapIDs()
-	local mapData = HBD.mapData
-	for _, mapID in ipairs(allMapIDs) do
-		local data = mapData[mapID]
-		if data and data.parent == parentMapID then
-			local zone = AddLocation(parentLocation._continentID, mapID, parentLocation)
-			if zone then
-				AddSubzoneLocations(zone)
+end
+
+-- Names and sources remain usable even when a Forever zone has no client map.
+for label, entry in pairs(ZONE_REGISTRY) do
+	if not entry.internal then
+		local mapID = ZONE_MAP_IDS[label]
+		local nativeContinent = mapID and ContinentForMap(mapID) or 0
+		local continent = nativeContinent > 0 and nativeContinent or entry.continent
+		local location = CreateLocation(label, ZONE_NAMES[label], mapID, continent)
+		if entry.kind == "continent" then ContinentLocationByID[entry.continent] = location end
+	end
+end
+for label, location in pairs(locationsByLabel) do
+	local entry = ZONE_REGISTRY[label]
+	local explicitParent = entry.parent and locationsByLabel[entry.parent]
+	if entry.entrance and explicitParent and explicitParent._mapID > 0 then
+		AttachParent(location, explicitParent)
+		location._entranceCoordinates = entry.entrance
+	elseif entry.kind ~= "continent" then
+		-- New Forever instances can have an area ID without a native UI map.
+		-- Their declared geography must still participate in location grouping.
+		local nativeParent = location._mapID > 0 and RegisteredMapParent(location._mapID) or nil
+		AttachParent(location, nativeParent or explicitParent or ContinentLocationByID[location._continentID])
+	end
+end
+
+-- Unknown localized names from NPC databases share one lazily built name index.
+local localizedMapIndex
+local function FindLocalizedMap(name)
+	if not localizedMapIndex then
+		localizedMapIndex = {}
+		for mapID in pairs(mapData) do
+			local localized = MapName(mapID)
+			if localized then
+				local key = Normalize(localized)
+				local previous = localizedMapIndex[key]
+				if not previous or mapID < previous then localizedMapIndex[key] = mapID end
 			end
 		end
 	end
+	return localizedMapIndex[Normalize(name)]
 end
 
--- ============================================================================
--- Initialize Location Database
--- Build all Location objects from continent and cosmic map data
--- ============================================================================
-
--- Create continent locations and recursively add child zones
-for dataIndex = 1, #mapContinentData do
-	if dataIndex % 2 == 0 then
-		local continentID = dataIndex / 2
-		local continentMapID = mapContinentData[dataIndex - 1]
-		local continent = AddLocation(continentID, continentMapID)
-
-		if continent then
-			ContinentLocationByID[continentID] = continent
-			AddSubzoneLocations(continent)
-		end
+function private.EnsureLocationByLocalizedName(localizedName)
+	if type(localizedName) ~= "string" or localizedName == "" then localizedName = UNKNOWN end
+	if LocationsByLocalizedName[localizedName] then return LocationsByLocalizedName[localizedName] end
+	local mapID = FindLocalizedMap(localizedName)
+	if mapID and LocationsByMapID[mapID] then
+		LocationsByLocalizedName[localizedName] = LocationsByMapID[mapID]
+		return LocationsByMapID[mapID]
 	end
+	local location = CreateLocation(nil, localizedName, mapID, ContinentForMap(mapID))
+	if mapID then AttachParent(location, RegisteredMapParent(mapID)) end
+	return location
 end
 
--- Create cosmic map for zones without continent parent
-local cosmicMap = AddLocation(946, 946)
-if cosmicMap then
-	ContinentLocationByID[946] = cosmicMap
-end
-
--- Add cosmic zones with explicit parent mapping
-for label, mapID in pairs(COSMIC_MAP_IDS) do
-	local parentLocation = LocationsByLocalizedName[COSMIC_MAP_LOCATION_PARENT_MAPPING[label]] or cosmicMap
-	local continentID = (parentLocation and parentLocation._continentID) or 946
-	AddLocation(continentID, mapID, parentLocation)
-end
-
--- Export ZONE_MAP_IDS for waypoint lookup
-private.ZONE_MAP_IDS = ZONE_MAP_IDS
+-- Both old-world continents share one acquisition grouping, not a waypoint map.
+local worldDropLocation = setmetatable({
+	_continentID = 0, _localizedName = "Azeroth", _mapID = -1,
+	_name = "AzerothWorldDrops", _recipes = {}, _worldDropAggregate = true,
+}, LocationMetatable)
+Locations.AzerothWorldDrops = worldDropLocation
+private.WorldDropLocation = worldDropLocation

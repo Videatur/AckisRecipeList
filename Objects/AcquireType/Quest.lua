@@ -32,6 +32,16 @@ private.RegisterAcquireType({
 	_func_expand_list_entry = function(self, entry_index, entry_type, parent_entry, identifier, info, recipe, hide_location, hide_type)
 		local quest = self:GetEntity(identifier)
 
+		-- Recipe modules may reference quests without a registered location.
+		if not quest then
+			local entry = private.CreateListEntry(entry_type, parent_entry, recipe)
+			entry:SetText("%s%s %s",
+				self.EntryPadding,
+				hide_type and "" or private.SetTextColor(self:ColorData().hex, self:Name()) .. ":",
+				private.quest_names[identifier])
+			return private.list_frame:InsertEntry(entry, entry_index, true)
+		end
+
 		if not self.CanDisplayFaction(quest.faction) then
 			return entry_index
 		end
@@ -47,7 +57,7 @@ private.RegisterAcquireType({
 
 		local coord_text = ""
 
-		if quest.coord_x ~= 0 and quest.coord_y ~= 0 then
+		if quest.coord_x and quest.coord_y and quest.coord_x ~= 0 and quest.coord_y ~= 0 then
 			coord_text = private.SetTextColor(CATEGORY_COLORS.coords.hex, COORDINATES_FORMAT:format(quest.coord_x, quest.coord_y))
 		end
 
@@ -69,7 +79,14 @@ private.RegisterAcquireType({
 		local quest = self:GetEntity(identifier)
 		local questLocName = (quest and quest.Location and quest.Location:LocalizedName()) or UNKNOWN
 
-		if not quest or (localizedLocationName and questLocName ~= localizedLocationName) then
+		if not quest then
+			if not localizedLocationName then
+				addline_func(0, -1, false, self:Name(), self:ColorData(), private.quest_names[identifier], self:ColorData())
+			end
+			return
+		end
+
+		if localizedLocationName and questLocName ~= localizedLocationName then
 			return
 		end
 		local display_tip, name_color = self.GetTipFactionInfo(quest.faction)
@@ -92,7 +109,7 @@ private.RegisterAcquireType({
 		end
 
 		local quest = self:GetEntity(id_num)
-		if self.CanDisplayFaction(quest.faction) then
+		if quest and self.CanDisplayFaction(quest.faction) then
 			return quest
 		end
 	end,

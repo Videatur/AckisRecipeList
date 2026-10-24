@@ -1,11 +1,10 @@
 --[[
     Ackis Recipe List - Configuration
     
-    Provides AceConfig-based options UI:
+    Provides native Blizzard Settings controls with AceConfig compatibility:
     - Main options (filters, exclusion list)
     - Waypoint settings (TomTom/HereBeDragons)
     - Display options (UI scale, tooltips)
-    - Datamining tools (dev mode)
     - Documentation tabs
     
     Copyright (c) 2009 - 2012 Ackis <John Pasula>
@@ -17,7 +16,6 @@
 -- ============================================================================
 local pairs = _G.pairs
 local type = _G.type
-local tonumber = _G.tonumber
 
 local table = _G.table
 
@@ -43,11 +41,131 @@ local modularOptions = {}
 -- Helper Functions
 -- ============================================================================
 
-local function giveProfiles()
-	return LibStub("AceDBOptions-3.0"):GetOptionsTable(addon.db)
+local function RegisterProfileDropdown()
+    local gui = LibStub("AceGUI-3.0")
+    local widgetType = "AckisProfileDropdown"
+    if gui:GetWidgetVersion(widgetType) then return widgetType end
+    gui:RegisterWidgetType(widgetType, function()
+        local frame = _G.CreateFrame("Frame", nil, _G.UIParent)
+        local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        label:SetPoint("TOPLEFT")
+        label:SetPoint("TOPRIGHT")
+        label:SetJustifyH("LEFT")
+        local dropdown = _G.CreateFrame("DropdownButton", nil, frame, "WowStyle1DropdownTemplate")
+        dropdown:SetHeight(26)
+        local widget = { type = widgetType, frame = frame, label = label, dropdown = dropdown, list = {}, order = {} }
+        function widget:SetText(text) self.dropdown:SetDefaultText(text or "") end
+        function widget:SetLabel(text)
+            self.label:SetText(text or "")
+            self.label:SetShown(text ~= nil and text ~= "")
+            local offset = text and text ~= "" and -18 or 0
+            self.dropdown:ClearAllPoints()
+            self.dropdown:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, offset)
+            self.dropdown:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", 0, offset)
+            self:SetHeight(text and text ~= "" and 46 or 28)
+            self.alignoffset = text and text ~= "" and 31 or 13
+        end
+        function widget:SetValue(value)
+            self.value = value
+            self:SetText(self.list[value])
+            self.dropdown:GenerateMenu()
+        end
+        function widget:GetValue() return self.value end
+        function widget:SetList(list, order)
+            self.list, self.order = list or {}, {}
+            if type(order) == "table" then
+                for _, key in ipairs(order) do self.order[#self.order + 1] = key end
+            else
+                for key in pairs(self.list) do self.order[#self.order + 1] = key end
+                table.sort(self.order, function(a, b) return tostring(self.list[a]) < tostring(self.list[b]) end)
+            end
+            self.dropdown:GenerateMenu()
+        end
+        function widget:SetDisabled(disabled)
+            self.disabled = disabled
+            self.dropdown:SetEnabled(not disabled)
+            if disabled then self.dropdown:CloseMenu() end
+            self.label:SetTextColor(disabled and .5 or 1, disabled and .5 or .82, disabled and .5 or 0)
+        end
+        function widget:ClearFocus() self.dropdown:CloseMenu() end
+        function widget:OnAcquire()
+            self.list, self.order, self.value = {}, {}, nil
+            self:SetWidth(200)
+            self:SetLabel(nil)
+            self:SetDisabled(false)
+            self:SetText("")
+            self.dropdown:GenerateMenu()
+        end
+        function widget:OnRelease()
+            self:ClearFocus()
+            self.list, self.order, self.value = {}, {}, nil
+            self.dropdown:GenerateMenu()
+        end
+        dropdown:SetupMenu(function(_, root)
+            for _, key in ipairs(widget.order) do
+                root:CreateRadio(widget.list[key], function(value) return widget.value == value end,
+                    function(value)
+                        if widget.disabled then return end
+                        widget:SetValue(value)
+                        -- AceConfig still handles validation, confirmation and the DB operation.
+                        widget:Fire("OnValueChanged", value)
+                    end, key)
+            end
+        end)
+        dropdown:HookScript("OnEnter", function() widget:Fire("OnEnter") end)
+        dropdown:HookScript("OnLeave", function() widget:Fire("OnLeave") end)
+        frame:SetScript("OnHide", function() widget:ClearFocus() end)
+        return gui:RegisterAsWidget(widget)
+    end, 1)
+    return widgetType
 end
 
---- Reset GUI position and scale to defaults
+local function giveProfiles()
+    local original = LibStub("AceDBOptions-3.0"):GetOptionsTable(addon.db)
+    local control = RegisterProfileDropdown()
+    -- AceDBOptions shares its argument definitions between addons. Copy them
+    -- before changing our layout or widget so other addons remain independent.
+    local result = {}
+    for key, value in pairs(original) do result[key] = value end
+    result.args = {}
+    for key, option in pairs(original.args) do
+        local copy = {}
+        for field, value in pairs(option) do copy[field] = value end
+        if copy.type == "select" and control then copy.dialogControl = control end
+        if copy.type == "description" then copy.fontSize = "medium" end
+        result.args[key] = copy
+    end
+    local args = result.args
+    -- Give the full character name its own row instead of the narrow space
+    -- beside Reset. Keep inputs and menus compact, matching the other controls.
+    if args.current then args.current.width = "full" end
+    for _, key in ipairs({ "new", "choose", "copyfrom", "delete" }) do
+        if args[key] then args[key].width = 2 end
+    end
+    if args.current then
+        local currentName = args.current.name
+        args.currentCaption = {
+            type = "description", order = 2, width = "full", fontSize = "medium",
+            name = function(info)
+                local text = type(currentName) == "function" and currentName(info) or currentName
+                -- Keep AceDB's translated caption; the colored profile name is
+                -- displayed separately below it in the larger native font.
+                local caption = text:match("^(.-)%s*|c%x%x%x%x%x%x%x%x") or text:match("^(.-):") or text
+                return "\n|cffb3b3b3" .. caption .. "|r"
+            end,
+        }
+        args.current.order = 3
+        args.current.fontSize = "large"
+        args.current.name = function(info)
+            return "|cffffd100" .. info.handler:GetCurrentProfile() .. "|r\n"
+        end
+    end
+    if args.descreset then args.descreset.order = 90 end
+    if args.reset then args.reset.order = 100 end
+    return result
+end
+
+--- Reset GUI position without changing display preferences or visibility
 local function ResetGUI()
 	local options = addon.db.profile.frameopts
 	local MainPanel = addon.Frame
@@ -56,13 +174,17 @@ local function ResetGUI()
 	options.offsety = 0
 	options.anchorTo = ""
 	options.anchorFrom = ""
-	options.uiscale = 1
-	options.small_list_font = true
-
 	if MainPanel then
-		MainPanel:Hide()
-		MainPanel:Show()
+		MainPanel:ClearAllPoints()
+		MainPanel:SetPoint("CENTER", _G.UIParent, "CENTER", 0, 0)
 	end
+end
+
+local function RefreshRecipeList()
+    local panel = addon.Frame
+    if private.addonEnabled == false or not panel or not panel:IsVisible() or not private.CurrentProfession then return end
+    if panel.list_frame then panel.list_frame:Update(nil, false) end
+    panel:UpdateTitle()
 end
 
 -- ============================================================================
@@ -96,13 +218,13 @@ local function fullOptions()
 							get = function()
 								return not (addon.db.profile.minimapIcon and addon.db.profile.minimapIcon.hide)
 							end,
-							set = function()
+							set = function(_, value)
 								addon.db.profile.minimapIcon = addon.db.profile.minimapIcon or { hide = false }
-								addon.db.profile.minimapIcon.hide = not addon.db.profile.minimapIcon.hide
+								addon.db.profile.minimapIcon.hide = not value
 								if addon.UpdateMinimapIcon then addon:UpdateMinimapIcon() end
 							end,
 						},
-						spacer1 = {
+						versionspacer = {
 							order = 12,
 							type = "description",
 							name = "\n",
@@ -125,12 +247,9 @@ local function fullOptions()
 							get = function()
 								return addon.db.profile.includefiltered
 							end,
-							set = function()
-								addon.db.profile.includefiltered = not addon.db.profile.includefiltered
-
-								if addon.Frame and addon.Frame:IsVisible() then
-									addon:Scan(false, false)
-								end
+							set = function(_, value)
+								addon.db.profile.includefiltered = value
+								RefreshRecipeList()
 							end,
 						},
 						includeexcluded = {
@@ -141,12 +260,9 @@ local function fullOptions()
 							get = function()
 								return addon.db.profile.includeexcluded
 							end,
-							set = function()
-								addon.db.profile.includeexcluded = not addon.db.profile.includeexcluded
-
-								if addon.Frame and addon.Frame:IsVisible() then
-									addon:Scan(false, false)
-								end
+							set = function(_, value)
+								addon.db.profile.includeexcluded = value
+								RefreshRecipeList()
 							end,
 						},
 						exclusionlist = {
@@ -158,13 +274,12 @@ local function fullOptions()
 								local exclusion_list = addon.db.profile.exclusionlist
 
 								for spell_id in pairs(exclusion_list) do
-									local spell_name = _G.GetSpellInfo(spell_id)
+									local spell_name = private.GetSpellName(spell_id)
 
 									if spell_name then
 										addon:Printf("%d: %s", spell_id, spell_name)
 									else
-										addon:Printf("%d: **spell not found** Removing from exclusion list.", spell_id)
-										exclusion_list[spell_id] = nil
+										addon:Printf("%d: %s", spell_id, _G.UNKNOWN)
 									end
 								end
 							end,
@@ -183,11 +298,10 @@ local function fullOptions()
 							func = function(info)
 								local exclusion_list = addon.db.profile.exclusionlist
 
-								exclusion_list = table.wipe(exclusion_list)
+								table.wipe(exclusion_list)
+                                private.IncrementFilterVersion()
 
-								if addon.Frame:IsVisible() then
-									addon:Scan()
-								end
+								RefreshRecipeList()
 							end,
 							disabled = function(info)
 								for spell_id in pairs(addon.db.profile.exclusionlist) do
@@ -201,7 +315,6 @@ local function fullOptions()
 							type = "description",
 							name = "\n",
 						},
-						-- Text Dump options removed (feature deprecated)
 					},
 				},
 			},
@@ -221,8 +334,6 @@ end
 local arlmap
 
 local function GetMapOptions()
-	local has_waypoints = _G.TomTom
-
 	if not arlmap then
 		arlmap = {
 			order = 1,
@@ -239,12 +350,12 @@ local function GetMapOptions()
 					type = "toggle",
 					name = L["Trainer"],
 					desc = L["WAYPOINT_TOGGLE_FORMAT"]:format(L["Trainer"]),
-					disabled = not has_waypoints,
 					get = function()
 						return addon.db.profile.maptrainer
 					end,
-					set = function()
-						addon.db.profile.maptrainer = not addon.db.profile.maptrainer
+					set = function(_, value)
+						addon.db.profile.maptrainer = value
+						addon:RefreshWaypointPreferences()
 					end,
 				},
 				mapvendor = {
@@ -252,12 +363,12 @@ local function GetMapOptions()
 					type = "toggle",
 					name = L["Vendor"],
 					desc = L["WAYPOINT_TOGGLE_FORMAT"]:format(L["Vendor"]),
-					disabled = not has_waypoints,
 					get = function()
 						return addon.db.profile.mapvendor
 					end,
-					set = function()
-						addon.db.profile.mapvendor = not addon.db.profile.mapvendor
+					set = function(_, value)
+						addon.db.profile.mapvendor = value
+						addon:RefreshWaypointPreferences()
 					end,
 				},
 				mapmob = {
@@ -265,12 +376,12 @@ local function GetMapOptions()
 					type = "toggle",
 					name = L["Mob Drop"],
 					desc = L["WAYPOINT_TOGGLE_FORMAT"]:format(L["Mob Drop"]),
-					disabled = not has_waypoints,
 					get = function()
 						return addon.db.profile.mapmob
 					end,
-					set = function()
-						addon.db.profile.mapmob = not addon.db.profile.mapmob
+					set = function(_, value)
+						addon.db.profile.mapmob = value
+						addon:RefreshWaypointPreferences()
 					end,
 				},
 				mapquest = {
@@ -278,12 +389,12 @@ local function GetMapOptions()
 					type = "toggle",
 					name = L["Quest"],
 					desc = L["WAYPOINT_TOGGLE_FORMAT"]:format(L["Quest"]),
-					disabled = not has_waypoints,
 					get = function()
 						return addon.db.profile.mapquest
 					end,
-					set = function()
-						addon.db.profile.mapquest = not addon.db.profile.mapquest
+					set = function(_, value)
+						addon.db.profile.mapquest = value
+						addon:RefreshWaypointPreferences()
 					end,
 				},
 				map_acquire_header = {
@@ -297,16 +408,15 @@ local function GetMapOptions()
 					width = "full",
 					name = L["Auto Scan Map"],
 					desc = L["AUTOSCANMAP_DESC"],
-					disabled = not has_waypoints,
 					get = function()
 						return addon.db.profile.autoscanmap
 					end,
-					set = function()
-						addon.db.profile.autoscanmap = not addon.db.profile.autoscanmap
+					set = function(_, value)
+						addon.db.profile.autoscanmap = value
 						if addon.db.profile.autoscanmap then
 							addon:AutoScanZoneWaypoints()
 						else
-							addon:ClearWaypoints()
+							addon:ClearAutomaticWaypoints()
 						end
 					end,
 				},
@@ -316,12 +426,12 @@ local function GetMapOptions()
 					width = "full",
 					name = _G.WORLD_MAP,
 					desc = L["WAYPOINT_MAP_FORMAT"]:format(_G.WORLD_MAP),
-					disabled = not has_waypoints,
 					get = function()
 						return addon.db.profile.worldmap
 					end,
-					set = function()
-						addon.db.profile.worldmap = not addon.db.profile.worldmap
+					set = function(_, value)
+						addon.db.profile.worldmap = value
+						addon:RefreshWaypointPreferences()
 					end,
 				},
 				minimap = {
@@ -330,19 +440,18 @@ local function GetMapOptions()
 					width = "full",
 					name = _G.MINIMAP_LABEL,
 					desc = L["WAYPOINT_MAP_FORMAT"]:format(_G.MINIMAP_LABEL),
-					disabled = not has_waypoints,
 					get = function()
 						return addon.db.profile.minimap
 					end,
-					set = function()
-						addon.db.profile.minimap = not addon.db.profile.minimap
+					set = function(_, value)
+						addon.db.profile.minimap = value
+						addon:RefreshWaypointPreferences()
 					end,
 				},
 				clearmap = {
 					order = 20,
 					type = "execute",
 					name = L["Clear Waypoints"],
-					disabled = not has_waypoints,
 					desc = L["CLEAR_WAYPOINTS_DESC"],
 					func = function()
 						addon:ClearWaypoints()
@@ -353,104 +462,6 @@ local function GetMapOptions()
 	end
 
 	return arlmap
-end
-
--- ============================================================================
--- Datamine Options
--- ============================================================================
-
-local datamine
-
-local function GetDatamineOptions()
-	if not datamine then
-		datamine = {
-			order = 1,
-			type = "group",
-			name = L["Datamine Options"],
-			args = {
-				datamine_desc = {
-					order = 1,
-					type = "description",
-					name = L["DATAMINE_OPTIONS_DESC"] .. "\n",
-				},
-				datamine_warn = {
-					order = 2,
-					type = "description",
-					name = L["DATAMINE_WARNING_DESC"] .. "\n",
-				},
-				scanentiredatabase = {
-					order = 40,
-					type = "execute",
-					name = L["Scan Entire Database"],
-					desc = L["SCAN_ENTIRE_DB_DESC"],
-					func = function() addon:TooltipScanDatabase() end,
-				},
-				scanprofessiontooltip = {
-					order = 60,
-					type = "input",
-					name = L["Scan A Profession"],
-					desc = L["SCAN_PROF_DB_DESC"],
-					get = false,
-					set = function(info, v) addon:ScanProfession(v) end,
-				},
-				scanspellid = {
-					order = 70,
-					type = "input",
-					name = L["Scan A Spell ID"],
-					desc = L["SCAN_SPELL_ID_DESC"],
-					get = false,
-					set = function(info, v) addon:ScanTooltipRecipe(tonumber(v), false, false) end,
-				},
-				null2 = {
-					order = 80,
-					type = "description",
-					name = "",
-				},
-				scantrainers = {
-					width = "full",
-					order = 90,
-					type = "toggle",
-					name = L["Auto Scan Trainers"],
-					desc = L["AUTOSCAN_TRAINERS_DESC"],
-					get = function() return addon.db.profile.scantrainers end,
-					set = function()
-						if addon.db.profile.scantrainers then
-							addon:UnregisterEvent("TRAINER_SHOW")
-						else
-							addon:RegisterEvent("TRAINER_SHOW")
-						end
-						addon.db.profile.scantrainers = not addon.db.profile.scantrainers
-					end,
-				},
-				scanvendors = {
-					width = "full",
-					order = 100,
-					type = "toggle",
-					name = L["Auto Scan Vendors"],
-					desc = L["AUTOSCAN_VENDORS_DESC"],
-					get = function() return addon.db.profile.scanvendors end,
-					set = function()
-						if addon.db.profile.scanvendors then
-							addon:UnregisterEvent("MERCHANT_SHOW")
-						else
-							addon:RegisterEvent("MERCHANT_SHOW")
-						end
-						addon.db.profile.scanvendors = not addon.db.profile.scanvendors
-					end,
-				},
-				autoloaddb = {
-					width = "full",
-					order = 110,
-					type = "toggle",
-					name = L["Auto Load Recipe Database"],
-					desc = L["AUTOLOAD_DB_DESC"],
-					get = function() return addon.db.profile.autoloaddb end,
-					set = function() addon.db.profile.autoloaddb = not addon.db.profile.autoloaddb end,
-				},
-			},
-		}
-	end
-	return datamine
 end
 
 -- ============================================================================
@@ -528,12 +539,6 @@ end
 
 local displayoptions
 
-local SCAN_ANCHORS = {
-	TR = L["Top Right"],
-	TL = L["Top Left"],
-	BR = L["Bottom Right"],
-	BL = L["Bottom Left"]
-}
 
 local function GetDisplayOptions()
 	if not displayoptions then
@@ -553,21 +558,7 @@ local function GetDisplayOptions()
 							name = L["DISPLAY_OPTIONS_DESC"] .. "\n",
 							type = "description",
 						},
-						scanbuttonlocation = {
-							order = 2,
-							type = "select",
-							name = L["Scan Button Position"],
-							desc = L["SCANBUTTONPOSITION_DESC"],
-							get = function()
-								return addon.db.profile.scanbuttonlocation
-							end,
-							set = function(info, name)
-								addon.db.profile.scanbuttonlocation = name
-							end,
-							values = function()
-								return SCAN_ANCHORS
-							end,
-						},
+
 						uiscale = {
 							order = 3,
 							type = "range",
@@ -585,7 +576,7 @@ local function GetDisplayOptions()
 								if private.InitializeFrame then
 									private.InitializeFrame()
 								end
-								addon.Frame:SetScale(v)
+								if addon.Frame then addon.Frame:SetScale(v) end
 							end,
 						},
 						small_list_font = {
@@ -602,9 +593,7 @@ local function GetDisplayOptions()
 								if private.InitializeFrame then
 									private.InitializeFrame()
 								end
-								if addon.Frame:IsVisible() then
-									addon:Scan()
-								end
+								RefreshRecipeList()
 							end,
 						},
 						closegui = {
@@ -788,27 +777,224 @@ end
 -- Options Registration
 -- ============================================================================
 
-function addon:SetupOptions()
-	AceConfigReg:RegisterOptionsTable(private.addon_name, fullOptions)
-	self.optionsFrame = AceConfigDialog:AddToBlizOptions(private.addon_name, private.addon_display_name or private.addon_name, nil, "general")
+-- Keep the existing option callbacks and profile storage, but let Blizzard
+-- build and align the controls with Forever's native Settings system.
+local defaultPaths = {
+    show_minimap_button = { "minimapIcon", "hide" },
+    uiscale = { "frameopts", "uiscale" },
+    small_list_font = { "frameopts", "small_list_font" },
+    closegui = { "closeguionskillclose" },
+    tooltip_fontsize = { "tooltip", "acquire_fontsize" },
+    tooltipscale = { "tooltip", "scale" },
+    unit_tooltip = { "recipes_in_tooltips" },
+    unit_max_tooltip = { "max_recipes_in_tooltips" },
+    tooltip_hint = { "hide_tooltip_hint" },
+}
+
+local function NativeDefault(key, option, info)
+    local value = addon.db.defaults and addon.db.defaults.profile
+    for _, field in ipairs(defaultPaths[key] or { key }) do
+        if type(value) == "table" then value = value[field] else value = nil end
+    end
+    if key == "show_minimap_button" and value ~= nil then value = not value end
+    if value == nil then value = option.get(info) end
+    return value
+end
+
+local function SortedOptions(args)
+    local sorted = {}
+    for key, option in pairs(args) do sorted[#sorted + 1] = { key = key, option = option } end
+    table.sort(sorted, function(a, b)
+        local ao, bo = a.option.order or 100, b.option.order or 100
+        return ao == bo and a.key < b.key or ao < bo
+    end)
+    return sorted
+end
+
+local function CreateNativeDocumentation(optionsTable)
+    local panel = _G.CreateFrame("Frame", nil, _G.UIParent)
+    panel:Hide()
+    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 16, -16)
+    title:SetText((private.addon_display_name or private.addon_name) .. " - " .. optionsTable.name)
+
+    local scroll = _G.CreateFrame("ScrollFrame", nil, panel)
+    scroll:SetPoint("TOPLEFT", 16, -48)
+    scroll:SetPoint("BOTTOMRIGHT", -36, 16)
+    scroll:EnableMouseWheel(true)
+    local scrollbar = _G.CreateFrame("EventFrame", nil, panel, "MinimalScrollBar")
+    scrollbar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 12, 0)
+    scrollbar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 12, 0)
+    scrollbar:Init(1, 0)
+    _G.ScrollUtil.InitScrollFrameWithScrollBar(scroll, scrollbar)
+
+    local content = _G.CreateFrame("Frame", nil, scroll)
+    content:SetSize(1, 1)
+    scroll:SetScrollChild(content)
+    local paragraphs = {}
+    for _, entry in ipairs(SortedOptions(optionsTable.args)) do
+        local option = entry.option
+        local heading = option.type == "header"
+        local text = content:CreateFontString(nil, "ARTWORK", heading and "GameFontNormal" or "GameFontHighlight")
+        text:SetJustifyH("LEFT")
+        text:SetJustifyV("TOP")
+        text:SetText(option.name)
+        paragraphs[#paragraphs + 1] = { text = text, heading = heading }
+    end
+    local function Layout()
+        local width = scroll:GetWidth()
+        if width <= 0 then return end
+        content:SetWidth(width)
+        local offset = 0
+        for _, paragraph in ipairs(paragraphs) do
+            local text = paragraph.text
+            if paragraph.heading and offset > 0 then offset = offset + 12 end
+            text:ClearAllPoints()
+            text:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -offset)
+            text:SetWidth(width)
+            offset = offset + text:GetStringHeight() + 10
+        end
+        content:SetHeight(offset)
+        scroll:UpdateScrollChildRect()
+        scroll:SetVerticalScroll(math.min(scroll:GetVerticalScroll(), scroll:GetVerticalScrollRange()))
+        scrollbar:SetShown(scroll:GetVerticalScrollRange() > 0)
+    end
+    scroll:SetScript("OnSizeChanged", Layout)
+    panel:SetScript("OnShow", Layout)
+    panel.ScrollFrame, panel.ScrollBar = scroll, scrollbar
+    return panel
+end
+
+local function AddNativeOptions(category, layout, group, path)
+    local Settings = _G.Settings
+    local state = addon.nativeOptionGroups[path]
+    if not state then
+        state = { controls = {}, settings = {}, completed = {}, headers = {} }
+        addon.nativeOptionGroups[path] = state
+    end
+    local controls = state.controls
+    local sorted = SortedOptions(group.args)
+    for index, entry in ipairs(sorted) do
+        local key, option = entry.key, entry.option
+        if not state.completed[key] then
+            local info = { path, key }
+            local initializer = controls[key]
+            if not initializer then
+                if option.type == "group" then
+                    local description
+                    for _, child in ipairs(SortedOptions(option.args)) do
+                        if child.option.type == "description" then description = child.option.name; break end
+                    end
+                    if not state.headers[key] then
+                        layout:AddInitializer(_G.CreateSettingsListSectionHeaderInitializer(option.name, description))
+                        state.headers[key] = true
+                    end
+                    AddNativeOptions(category, layout, option, path .. "_" .. key)
+                elseif option.type == "header" or key == "version" then
+                    if option.name:find("%S") then
+                        local nextOption = sorted[index + 1] and sorted[index + 1].option
+                        local description = option.desc or (nextOption and nextOption.type == "description" and nextOption.name)
+                        layout:AddInitializer(_G.CreateSettingsListSectionHeaderInitializer(option.name, description))
+                    end
+                elseif option.type == "execute" then
+                    initializer = _G.CreateSettingsButtonInitializer("", option.name, function()
+                        option.func(info)
+                        if private.RefreshNativeOptions then private.RefreshNativeOptions() end
+                    end, option.desc, true)
+                    layout:AddInitializer(initializer)
+                elseif option.type == "toggle" or option.type == "range" or option.type == "select" then
+                    local default = NativeDefault(key, option, info)
+                    local variableType = option.type == "toggle" and "boolean" or type(default)
+                    local variable = FOLDER_NAME .. "_" .. path .. "_" .. key
+                    local setting = state.settings[key]
+                    if not setting then
+                        setting = Settings.RegisterProxySetting(category, variable, variableType, option.name, default,
+                            function() return option.get(info) end,
+                            function(value)
+                                if option.get(info) ~= value then option.set(info, value) end
+                            end)
+                        state.settings[key] = setting
+                        addon.nativeOptionVariables[#addon.nativeOptionVariables + 1] = variable
+                    end
+                    if option.type == "toggle" then
+                        initializer = Settings.CreateCheckbox(category, setting, option.desc)
+                    elseif option.type == "range" then
+                        local sliderOptions = Settings.CreateSliderOptions(option.min, option.max, option.step)
+                        sliderOptions:SetLabelFormatter(_G.MinimalSliderWithSteppersMixin.Label.Right, function(value)
+                            return option.step < 1 and ("%.2f"):format(value) or tostring(value)
+                        end)
+                        initializer = Settings.CreateSlider(category, setting, sliderOptions, option.desc)
+                    else
+                        initializer = Settings.CreateDropdown(category, setting, function()
+                            local values = type(option.values) == "function" and option.values(info) or option.values
+                            local keys = {}
+                            for value in pairs(values) do keys[#keys + 1] = value end
+                            table.sort(keys, function(a, b) return values[a] < values[b] end)
+                            local container = Settings.CreateControlTextContainer()
+                            for _, value in ipairs(keys) do container:Add(value, values[value]) end
+                            return container:GetData()
+                        end, option.desc)
+                    end
+                end
+            end
+            if initializer then
+                controls[key] = initializer
+                if option.disabled ~= nil then
+                    initializer:AddModifyPredicate(function()
+                        return not (type(option.disabled) == "function" and option.disabled(info) or option.disabled == true)
+                    end)
+                end
+            end
+            state.completed[key] = true
+        end
+    end
+    -- Native dependency tracking updates this slider as soon as its checkbox changes.
+    if controls.unit_max_tooltip and controls.unit_tooltip then
+        controls.unit_max_tooltip:SetParentInitializer(controls.unit_tooltip)
+    end
+end
+
+function private.RefreshNativeOptions()
+    for _, variable in ipairs(addon.nativeOptionVariables or {}) do _G.Settings.NotifyUpdate(variable) end
+end
+
+local function RegisterOptions(self)
+	if not self.optionTableRegistered then
+		AceConfigReg:RegisterOptionsTable(private.addon_name, fullOptions)
+		self.optionTableRegistered = true
+	end
+	local Settings = _G.Settings
+	self.nativeOptionVariables = self.nativeOptionVariables or {}
+	self.nativeOptionGroups = self.nativeOptionGroups or {}
+	self.nativeOptionLayouts = self.nativeOptionLayouts or {}
+	local category, layout = self.settingsCategory, self.nativeOptionLayouts.general
+	if not category then
+		category, layout = Settings.RegisterVerticalLayoutCategory(private.addon_display_name or private.addon_name)
+		self.settingsCategory, self.optionsFrame = category, category
+		self.nativeOptionLayouts.general = layout
+	end
+	if not self.settingsCategoryRegistered then
+		Settings.RegisterAddOnCategory(category)
+		self.settingsCategoryRegistered = true
+	end
+	AddNativeOptions(category, layout, fullOptions().args.general, "general")
 
 	-- Register module options
 	self:RegisterModuleOptions("Display", GetDisplayOptions(), _G.DISPLAY_OPTIONS)
 
-	if _G.TomTom then
-		self:RegisterModuleOptions("Waypoint", GetMapOptions(), L["Waypoints"])
-	end
-
-	if addon.version == "Devel" then
-		self:RegisterModuleOptions("Datamining", GetDatamineOptions(), L["Datamine Options"])
-	else
-		addon.db.profile.scantrainers = false
-		addon.db.profile.scanvendors = false
-		addon.db.profile.autoloaddb = false
-	end
+	self:RegisterModuleOptions("Waypoint", GetMapOptions(), L["Waypoints"])
 
 	self:RegisterModuleOptions("Documentation", GetDocumentation(), L["Documentation"])
 	self:RegisterModuleOptions("Profiles", giveProfiles(), L["Profile Options"])
+end
+
+function addon:SetupOptions()
+    if self.optionsRegistered or self.optionsRegistering then return end
+    self.optionsRegistering = true
+    local ok, err = _G.pcall(RegisterOptions, self)
+    self.optionsRegistering = nil
+    if not ok then _G.error(err, 0) end
+    self.optionsRegistered = true
 end
 
 --- Register a module options table
@@ -817,5 +1003,23 @@ end
 --- @param displayName string The display name in config UI
 function addon:RegisterModuleOptions(name, optionsTable, displayName)
 	modularOptions[name] = optionsTable
-	self.optionsFrame[name] = AceConfigDialog:AddToBlizOptions(private.addon_name, displayName, private.addon_display_name or private.addon_name, name)
+	if options then options.args[name] = type(optionsTable) == "function" and optionsTable() or optionsTable end
+	if name == "Display" or name == "Waypoint" then
+		local category, layout = self.optionsFrame[name], self.nativeOptionLayouts[name]
+		if not category then
+			category, layout = _G.Settings.RegisterVerticalLayoutSubcategory(self.settingsCategory, displayName)
+			self.optionsFrame[name], self.nativeOptionLayouts[name] = category, layout
+		end
+		AddNativeOptions(category, layout, optionsTable, name)
+	elseif name == "Documentation" then
+		if not self.optionsFrame[name] then
+			self.documentationPanel = self.documentationPanel or CreateNativeDocumentation(optionsTable)
+			self.optionsFrame[name] = _G.Settings.RegisterCanvasLayoutSubcategory(self.settingsCategory, self.documentationPanel, displayName)
+		end
+	else
+		local parent = self.settingsCategory:GetID()
+		if not self.optionsFrame[name] then
+			self.optionsFrame[name] = AceConfigDialog:AddToBlizOptions(private.addon_name, displayName, parent, name)
+		end
+	end
 end
