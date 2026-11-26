@@ -1,12 +1,12 @@
 --[[
     Ackis Recipe List - Profession Object
-    
+
     Provides profession tracking and identification:
     - Profession spell IDs for all crafting professions
     - Localized name mappings for client language support
     - Expansion-specific spell tracking (Outland, Northrend, etc.)
     - Module registration for profession databases
-    
+
     Copyright (c) 2009 - 2012 Ackis <John Pasula>
     All rights reserved by the original author Ackis.
 ]]
@@ -37,8 +37,6 @@ local PROFESSION_SPELL_IDS = {
 	ENGINEERING = 4036,
 	FISHING = 7731,
 	FIRST_AID = 1240927,
-	INSCRIPTION = 45357,
-	JEWELCRAFTING = 25229,
 	LEATHERWORKING = 2108,
 	MINING = 2575,
 	TAILORING = 3908,
@@ -51,8 +49,7 @@ private.constants.PROFESSION_SPELL_IDS = PROFESSION_SPELL_IDS
 local PROFESSION_SKILL_LINE_IDS = {
     ALCHEMY = 171, ARCHAEOLOGY = 794, BLACKSMITHING = 164, COOKING = 185,
     ENCHANTING = 333, ENGINEERING = 202, FISHING = 356, FIRST_AID = 129,
-    INSCRIPTION = 773, JEWELCRAFTING = 755, LEATHERWORKING = 165,
-    MINING = 186, TAILORING = 197,
+    LEATHERWORKING = 165, MINING = 186, TAILORING = 197,
 }
 local SKILL_LINE_ID_TO_LABEL = {}
 for label, id in pairs(PROFESSION_SKILL_LINE_IDS) do
@@ -107,102 +104,6 @@ for _, spellID in ipairs({3273, 3274, 7924, 10846, 1240927, 1240928, 1240929, 12
 	MapSpellToProfession(spellID, 'FIRST_AID')
 end
 
--- Alchemy expansions
-MapSpellToProfession(264213, 'ALCHEMY') -- Outland
-MapSpellToProfession(264220, 'ALCHEMY') -- Northrend
-MapSpellToProfession(264243, 'ALCHEMY') -- Cataclysm
-MapSpellToProfession(264245, 'ALCHEMY') -- Pandaria
-MapSpellToProfession(264247, 'ALCHEMY') -- Draenor
-MapSpellToProfession(264250, 'ALCHEMY') -- Legion
-MapSpellToProfession(264255, 'ALCHEMY') -- Kul Tiran
-MapSpellToProfession(265787, 'ALCHEMY') -- Zandalari
-
--- Blacksmithing expansions
-MapSpellToProfession(264436, 'BLACKSMITHING') -- Outland
-MapSpellToProfession(264438, 'BLACKSMITHING') -- Northrend
-MapSpellToProfession(264440, 'BLACKSMITHING') -- Cataclysm
-MapSpellToProfession(264442, 'BLACKSMITHING') -- Pandaria
-MapSpellToProfession(264444, 'BLACKSMITHING') -- Draenor
-MapSpellToProfession(264446, 'BLACKSMITHING') -- Legion
-MapSpellToProfession(264448, 'BLACKSMITHING') -- Kul Tiran
-MapSpellToProfession(265803, 'BLACKSMITHING') -- Zandalari
-
--- Cooking (Way of ... + expansions)
-MapSpellToProfession(124694, 'COOKING') -- Way of the Grill
-MapSpellToProfession(125584, 'COOKING') -- Way of the Wok
-MapSpellToProfession(125586, 'COOKING') -- Way of the Pot
-MapSpellToProfession(125587, 'COOKING') -- Way of the Steamer
-MapSpellToProfession(125588, 'COOKING') -- Way of the Oven
-MapSpellToProfession(125589, 'COOKING') -- Way of the Brew
-MapSpellToProfession(264634, 'COOKING') -- Outland
-MapSpellToProfession(264636, 'COOKING') -- Northrend
-MapSpellToProfession(264638, 'COOKING') -- Cataclysm
-MapSpellToProfession(264640, 'COOKING') -- Pandaria
-MapSpellToProfession(264642, 'COOKING') -- Draenor
-MapSpellToProfession(264644, 'COOKING') -- Legion
-MapSpellToProfession(264647, 'COOKING') -- Kul Tiran
-MapSpellToProfession(265817, 'COOKING') -- Zandalari
-
--- Enchanting expansions
-MapSpellToProfession(264460, 'ENCHANTING') -- Outland
-MapSpellToProfession(264462, 'ENCHANTING') -- Northrend
-MapSpellToProfession(264464, 'ENCHANTING') -- Cataclysm
-MapSpellToProfession(264467, 'ENCHANTING') -- Pandaria
-MapSpellToProfession(264469, 'ENCHANTING') -- Draenor
-MapSpellToProfession(264471, 'ENCHANTING') -- Legion
-MapSpellToProfession(264473, 'ENCHANTING') -- Kul Tiran
-MapSpellToProfession(265805, 'ENCHANTING') -- Zandalari
-
--- Engineering expansions
-MapSpellToProfession(264479, 'ENGINEERING') -- Outland
-MapSpellToProfession(264481, 'ENGINEERING') -- Northrend
-MapSpellToProfession(264483, 'ENGINEERING') -- Cataclysm
-MapSpellToProfession(264485, 'ENGINEERING') -- Pandaria
-MapSpellToProfession(264487, 'ENGINEERING') -- Draenor
-MapSpellToProfession(264490, 'ENGINEERING') -- Legion
-MapSpellToProfession(264492, 'ENGINEERING') -- Kul Tiran
-MapSpellToProfession(265807, 'ENGINEERING') -- Zandalari
-
--- Inscription expansions
-MapSpellToProfession(264496, 'INSCRIPTION') -- Outland
-MapSpellToProfession(264498, 'INSCRIPTION') -- Northrend
-MapSpellToProfession(264500, 'INSCRIPTION') -- Cataclysm
-MapSpellToProfession(264502, 'INSCRIPTION') -- Pandaria
-MapSpellToProfession(264504, 'INSCRIPTION') -- Draenor
-MapSpellToProfession(264506, 'INSCRIPTION') -- Legion
-MapSpellToProfession(264508, 'INSCRIPTION') -- Kul Tiran
-MapSpellToProfession(265809, 'INSCRIPTION') -- Zandalari
-
--- Jewelcrafting expansions
-MapSpellToProfession(264534, 'JEWELCRAFTING') -- Outland
-MapSpellToProfession(264537, 'JEWELCRAFTING') -- Northrend
-MapSpellToProfession(264539, 'JEWELCRAFTING') -- Cataclysm
-MapSpellToProfession(264542, 'JEWELCRAFTING') -- Pandaria
-MapSpellToProfession(264544, 'JEWELCRAFTING') -- Draenor
-MapSpellToProfession(264546, 'JEWELCRAFTING') -- Legion
-MapSpellToProfession(264548, 'JEWELCRAFTING') -- Kul Tiran
-MapSpellToProfession(265811, 'JEWELCRAFTING') -- Zandalari
-
--- Leatherworking expansions
-MapSpellToProfession(264579, 'LEATHERWORKING') -- Outland
-MapSpellToProfession(264581, 'LEATHERWORKING') -- Northrend
-MapSpellToProfession(264583, 'LEATHERWORKING') -- Cataclysm
-MapSpellToProfession(264585, 'LEATHERWORKING') -- Pandaria
-MapSpellToProfession(264588, 'LEATHERWORKING') -- Draenor
-MapSpellToProfession(264590, 'LEATHERWORKING') -- Legion
-MapSpellToProfession(264592, 'LEATHERWORKING') -- Kul Tiran
-MapSpellToProfession(265813, 'LEATHERWORKING') -- Zandalari
-
--- Tailoring expansions
-MapSpellToProfession(264618, 'TAILORING') -- Outland
-MapSpellToProfession(264620, 'TAILORING') -- Northrend
-MapSpellToProfession(264622, 'TAILORING') -- Cataclysm
-MapSpellToProfession(264624, 'TAILORING') -- Pandaria
-MapSpellToProfession(264626, 'TAILORING') -- Draenor
-MapSpellToProfession(264628, 'TAILORING') -- Legion
-MapSpellToProfession(264630, 'TAILORING') -- Kul Tiran
-MapSpellToProfession(265815, 'TAILORING') -- Zandalari
-
 private.LOCALIZED_SPELL_NAME_TO_LOCALIZED_PROFESSION_NAME_MAPPING = LOCALIZED_SPELL_NAME_TO_LOCALIZED_PROFESSION_NAME_MAPPING
 
 -- Add base profession names to mapping
@@ -220,12 +121,10 @@ local ORDERED_LOCALIZED_PROFESSION_NAMES = {
 	LOCALIZED_PROFESSION_NAMES.COOKING,
 	LOCALIZED_PROFESSION_NAMES.ENCHANTING,
 	LOCALIZED_PROFESSION_NAMES.ENGINEERING,
-	LOCALIZED_PROFESSION_NAMES.INSCRIPTION,
-	LOCALIZED_PROFESSION_NAMES.JEWELCRAFTING,
+	LOCALIZED_PROFESSION_NAMES.FIRST_AID,
 	LOCALIZED_PROFESSION_NAMES.LEATHERWORKING,
 	LOCALIZED_PROFESSION_NAMES.MINING,
 	LOCALIZED_PROFESSION_NAMES.TAILORING,
-	LOCALIZED_PROFESSION_NAMES.FIRST_AID,
 }
 
 private.ORDERED_LOCALIZED_PROFESSION_NAMES = ORDERED_LOCALIZED_PROFESSION_NAMES
@@ -248,12 +147,10 @@ AddProfMap('BLACKSMITHING', 'Blacksmithing')
 AddProfMap('COOKING', 'Cooking')
 AddProfMap('ENCHANTING', 'Enchanting')
 AddProfMap('ENGINEERING', 'Engineering')
-AddProfMap('INSCRIPTION', 'Inscription')
-AddProfMap('JEWELCRAFTING', 'Jewelcrafting')
+AddProfMap('FIRST_AID', 'FirstAid')
 AddProfMap('LEATHERWORKING', 'Leatherworking')
 AddProfMap('MINING', 'Mining')
 AddProfMap('TAILORING', 'Tailoring')
-AddProfMap('FIRST_AID', 'FirstAid')
 
 private.LOCALIZED_PROFESSION_NAME_TO_MODULE_NAME_MAPPING = LOCALIZED_PROFESSION_NAME_TO_MODULE_NAME_MAPPING
 
@@ -308,12 +205,10 @@ local WAYPOINT_ICON_TEXTURES = {
 	[[INV_Misc_Food_15]],
 	[[Trade_Engraving]],
 	[[Trade_Engineering]],
-	[[INV_Inscription_Tradeskill01]],
-	[[INV_Misc_Gem_01]],
+	[[Spell_Holy_SealOfSacrifice]],
 	[[Trade_LeatherWorking]],
 	[[Spell_Fire_FlameBlades]],
 	[[Trade_Tailoring]],
-	[[Spell_Holy_SealOfSacrifice]],
 }
 
 -- ============================================================================

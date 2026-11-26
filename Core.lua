@@ -274,6 +274,7 @@ function addon:OnInitialize()
             spelltooltiplocation = "Right",
             acquiretooltiplocation = "Right",
             recipes_in_tooltips = true,
+            all_profession_drops_in_tooltips = false,
             max_recipes_in_tooltips = 10,
             hide_tooltip_hint = false,
             hidepopup = false,
@@ -431,6 +432,7 @@ function addon:OnInitialize()
         private.IncrementFilterVersion()
         self:UpdateMinimapIcon()
         self:RefreshWaypointPreferences()
+        private.RefreshNPCTooltipProfessions()
         local panel = self.Frame
         if not panel or not panel.filter_menu or not panel.filter_menu.value_map then return end
         private.UpdateFilterMarks()
@@ -485,18 +487,19 @@ function addon:OnInitialize()
 
     local function CacheNPCRecipes(npcID)
         local recipes, seen = {}, {}
-        for _, acquireType in ipairs({private.AcquireTypes.MobDrop, private.AcquireTypes.Vendor,
-            private.AcquireTypes.Trainer, private.AcquireTypes.Mixed}) do
+        local acquireTypes = private.AcquireTypes
+        for _, acquireType in ipairs({acquireTypes.MobDrop, acquireTypes.Vendor, acquireTypes.Trainer, acquireTypes.Mixed}) do
             local entity = acquireType:GetEntity(npcID)
             for spellID in pairs(entity and entity.item_list or {}) do
                 local recipe = private.recipe_list[spellID]
                 if recipe and not seen[spellID] then
                     seen[spellID] = true
-                    recipes[#recipes + 1] = recipe
+                    recipes[#recipes + 1] = { recipe = recipe, isMobDrop = acquireType == acquireTypes.MobDrop }
                 end
             end
         end
-        table.sort(recipes, function(a, b)
+        table.sort(recipes, function(first, second)
+            local a, b = first.recipe, second.recipe
             local ap = a.Profession and a.Profession:LocalizedName() or _G.UNKNOWN
             local bp = b.Profession and b.Profession:LocalizedName() or _G.UNKNOWN
             if ap ~= bp then return ap < bp end
@@ -529,19 +532,26 @@ function addon:OnInitialize()
     end
 
     local function AddUnitTooltipRecipes(tooltip, tooltipData)
-        if private.addonEnabled == false or not addon.db.profile.recipes_in_tooltips then
+        local profile = addon.db.profile
+        if private.addonEnabled == false or not profile.recipes_in_tooltips then
+            return
+        end
+        local isSecret = private.SafeOps.IsSecretValue
+        if tooltip:IsForbidden() or isSecret(tooltipData) then
             return
         end
 
-        -- Forever's TooltipDataProcessor supplies the GUID when available.
-        -- Resolve the tooltip unit if the data does not include it.
+        -- A restricted GUID must stay opaque. Resolve the unit only if the GUID is absent.
         local guid = tooltipData and tooltipData.guid
-        if not guid then
-            local _, tooltipUnit = tooltip:GetUnit()
-            guid = tooltipUnit and _G.UnitGUID(tooltipUnit)
-        end
-        if not guid then
+        if isSecret(guid) then
             return
+        end
+        if guid == nil then
+            local _, tooltipUnit = tooltip:GetUnit()
+            if isSecret(tooltipUnit) or not tooltipUnit then
+                return
+            end
+            guid = _G.UnitGUID(tooltipUnit)
         end
 
         local npcID = private.MobGUIDToIDNum(guid)
@@ -559,30 +569,38 @@ function addon:OnInitialize()
         end
 
         local player = private.Player
-        local maxRecipes = addon.db.profile.max_recipes_in_tooltips or 10
+        local maxRecipes = profile.max_recipes_in_tooltips or 10
+        local showUnscannedDrops = profile.all_profession_drops_in_tooltips
         local showAll = _G.IsShiftKeyDown()
-        local addedCount = 0
+        local addedCount, hiddenCount = 0, 0
 
-        for i = 1, #recipes do
-            local recipe = recipes[i]
+        for _, entry in ipairs(recipes) do
+            local recipe = entry.recipe
             local professionName = recipe.Profession and recipe.Profession:LocalizedName()
+            local skillLevel = professionName and player.professions[professionName]
+            local hasProfession = skillLevel and skillLevel > 0
+            local showRecipe = showUnscannedDrops and entry.isMobDrop and hasProfession
 
-            if professionName and player.scanned_professions[professionName] then
-                local skillLevel = player.professions[professionName]
-                local hasLevel = skillLevel and skillLevel >= (recipe.skill_level or 0)
+            if not showRecipe and hasProfession and player.scanned_professions[professionName] then
+                local hasLevel = skillLevel >= (recipe.skill_level or 0)
 
                 local isKnown = recipe.HasState and recipe:HasState("KNOWN")
-                local hasFaction = player.HasRecipeFaction and player:HasRecipeFaction(recipe)
-
-                if (showAll or (not isKnown and hasLevel)) and hasFaction then
+                showRecipe = showAll or (not isKnown and hasLevel)
+            end
+            if showRecipe and player.HasRecipeFaction and player:HasRecipeFaction(recipe) then
+                if addedCount < maxRecipes then
                     AddRecipeLine(tooltip, recipe)
                     addedCount = addedCount + 1
-
-                    if addedCount >= maxRecipes then
+                    if not showUnscannedDrops and addedCount >= maxRecipes then
                         break
                     end
+                else
+                    hiddenCount = hiddenCount + 1
                 end
             end
+        end
+        if hiddenCount > 0 then
+            tooltip:AddLine(L["UNIT_TOOLTIP_MORE_RECIPES"]:format(hiddenCount))
         end
     end
 
@@ -611,8 +629,7 @@ function addon:OnEnable()
     private.Player:Initialize()
     private.RegisterPlayerEvents(self)
     self:UpdateMinimapIcon()
-    if self.profession_scan_tab then self.profession_scan_tab:Show() end
-
+    private.RefreshNPCTooltipProfessions()
     -- ----------------------------------------------------------------------------
     -- Initialize the profession specialty table.
     -- ----------------------------------------------------------------------------
@@ -667,6 +684,7 @@ end
 
 function addon:OnDisable()
     private.addonEnabled = false
+    private.RefreshNPCTooltipProfessions()
     private.UnregisterUIEvents()
     private.UnregisterPlayerEvents(self)
     self:HideProfessionGuideTip()
@@ -685,13 +703,28 @@ end
 
 -- ============================================================================
 -- SCAN BUTTON MANAGEMENT
--- The Scan tab attaches to the Forever professions frame.
+-- The native Scan tab and optional Skillet menu entry share the same panel.
 -- ============================================================================
 
-local function AnchorProfessionSidebar(sidebar, owner)
-    sidebar:ClearAllPoints()
-    sidebar:SetPoint("TOPLEFT", owner, "TOPRIGHT", 0, 0)
-    sidebar:SetPoint("BOTTOMLEFT", owner, "BOTTOMRIGHT", 0, 0)
+local function ProfessionUIBlocked(owner)
+    if not _G.InCombatLockdown() then return false end
+    if private.addonEnabled ~= false then
+        owner:RegisterEvent("PLAYER_REGEN_ENABLED", "ResumeProfessionUI")
+    end
+    return true
+end
+
+function addon:ResumeProfessionUI()
+    if _G.InCombatLockdown() then return end
+    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    if private.addonEnabled == false then return end
+    self:HideProfessionGuideTip()
+    if _G.ProfessionsFrame and _G.ProfessionsFrame:IsShown() then
+        self:TRADE_SKILL_SHOW()
+    else
+        self:InitializeProfessionIntegration()
+        self:SyncProfessionTab()
+    end
 end
 
 function addon:CloseProfessionPanel()
@@ -701,7 +734,7 @@ end
 
 function addon:SyncProfessionTab()
     local panel, tab = self.Frame, self.profession_scan_tab
-    if not tab then return end
+    if not tab or ProfessionUIBlocked(self) then return end
     if panel and not panel.arlLauncherHooks then
         panel.arlLauncherHooks = true
         panel:HookScript("OnHide", function() addon:SyncProfessionTab() end)
@@ -718,13 +751,14 @@ do
 
     function addon:HideProfessionGuideTip()
         if tipText and self.profession_scan_tab then
+            if ProfessionUIBlocked(self) then return end
             _G.HelpTip:Hide(self.profession_scan_tab, tipText)
         end
         tipText, tipProfession = nil, nil
     end
 
     function addon:MaybeShowProfessionGuideTip()
-        if private.addonEnabled == false then return end
+        if private.addonEnabled == false or ProfessionUIBlocked(self) then return end
         local tab = self.profession_scan_tab
         if not tab or not tab:IsVisible() or not _G.ProfessionsFrame:IsVisible() then return end
         local id, name, rank = private.GetTradeSkillLine()
@@ -784,8 +818,64 @@ do
     end
 end
 
-function addon:ToggleProfessionPanel(mouseButton)
-    if private.addonEnabled == false then return end
+local function GetSkilletWindow()
+    local skillet, frame = _G.Skillet, _G.SkilletFrame
+    if skillet and frame and type(skillet.AddButtonToTradeskillWindow) == "function" then
+        return skillet, frame
+    end
+end
+
+local function IsSkilletProfessionOpen()
+    local skillet, frame = GetSkilletWindow()
+    if not skillet or not skillet.tradeSkillOpen or not skillet.currentTrade or not frame:IsVisible() then
+        return false
+    end
+    -- Skillet identifies the displayed profession by its localized base name.
+    -- A cached selection or a profession change can temporarily disagree with Blizzard.
+    local info = _G.C_TradeSkillUI.GetBaseProfessionInfo()
+    return info and skillet.tradeSkillIDsByName
+        and skillet.tradeSkillIDsByName[info.professionName] == skillet.currentTrade
+end
+
+local function IsBlizzardProfessionWindowVisible(professions)
+    if not professions or not professions:IsVisible() then return false end
+    local skillet = _G.Skillet
+    local profile = skillet and skillet.db and skillet.db.profile
+    -- In scale mode Skillet minimizes the native window without hiding it.
+    if profile and profile.scale_blizzard_frame and not profile.hide_blizzard_frame
+        and skillet.BlizzardUIshowing == false then
+        local minimizedScale = profile.scale_blizzard_down or 0.4
+        return math.abs(professions:GetScale() - minimizedScale) > 0.001
+    end
+    return true
+end
+
+function addon:EnsureSkilletButton()
+    if self.skillet_scan_button then return end
+    local skillet, frame = GetSkilletWindow()
+    if not skillet then return end
+
+    local button = _G.CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    button:SetSize(80, 20)
+    button:SetText("Ackis Recipe List")
+    button:SetScript("OnClick", function()
+        addon:ToggleProfessionPanel("LeftButton", true)
+    end)
+    skillet:AddButtonToTradeskillWindow(button)
+    self.skillet_scan_button = button
+
+    -- Skillet can replace ProfessionsFrame's OnHide or change only its scale.
+    for _, method in ipairs({ "DisableBlizzardFrame", "EnableBlizzardFrame", "BlizzardUIButton_OnClick" }) do
+        if type(skillet[method]) == "function" then
+            _G.hooksecurefunc(skillet, method, function()
+                if addon.positionProfessionTab then addon.positionProfessionTab() end
+            end)
+        end
+    end
+end
+
+function addon:ToggleProfessionPanel(mouseButton, fromSkillet)
+    if private.addonEnabled == false or ProfessionUIBlocked(self) then return end
     if mouseButton and mouseButton ~= "LeftButton" then return end
     if _G.IsAltKeyDown() and not _G.IsControlKeyDown() then
         self:ClearWaypoints()
@@ -793,8 +883,11 @@ function addon:ToggleProfessionPanel(mouseButton)
     end
     if _G.IsControlKeyDown() then return end
     self:HideProfessionGuideTip()
-    local tab = self.profession_scan_tab
-    if not tab or not _G.ProfessionsFrame:IsShown() then return end
+    if fromSkillet then
+        if not IsSkilletProfessionOpen() then return end
+    elseif not self.profession_scan_tab or not IsBlizzardProfessionWindowVisible(_G.ProfessionsFrame) then
+        return
+    end
     if self.Frame and self.Frame:IsShown() then
         self:CloseProfessionPanel()
         return
@@ -808,31 +901,73 @@ function addon:ToggleProfessionPanel(mouseButton)
     self:SyncProfessionTab()
 end
 
+local function GetProfessionTabOffset(tab, professions, nativeTab)
+    local offsetsByAnchor = {}
+    local nativeTabs = { [nativeTab] = true }
+    if professions.ProfessionsOverviewTab then
+        nativeTabs[professions.ProfessionsOverviewTab] = true
+    end
+    for _, child in ipairs(professions.rightProfessionTabs or {}) do
+        nativeTabs[child] = true
+    end
+
+    for _, child in ipairs({ professions:GetChildren() }) do
+        if child ~= tab and not nativeTabs[child] and child.SetCustomOnMouseUpHandler then
+            local point, relative, relativePoint, x, y = child:GetPoint(1)
+            if relative and point == "TOPLEFT" and relativePoint == "BOTTOMLEFT" and x == 0 then
+                local offsets = offsetsByAnchor[relative] or {}
+                offsetsByAnchor[relative] = offsets
+                offsets[child] = child:GetHeight() - y
+            end
+        end
+    end
+
+    -- Reserve space for the column while keeping ARL anchored to Blizzard.
+    local function GetDepth(anchor)
+        local depth = 0
+        for child, offset in pairs(offsetsByAnchor[anchor] or {}) do
+            depth = math.max(depth, offset + GetDepth(child))
+        end
+        return depth
+    end
+    return GetDepth(nativeTab)
+end
+
+local function PositionProfessionTab(tab, professions)
+    tab:ClearAllPoints()
+    tab:SetFrameStrata(professions:GetFrameStrata())
+    tab:SetFrameLevel(professions:GetFrameLevel() + 20)
+    tab:SetScale(professions:GetEffectiveScale() / _G.UIParent:GetEffectiveScale())
+    if _G.C_AddOns.IsAddOnLoaded("SkillUpForever") or _G.C_AddOns.IsAddOnLoaded("WhatsTraining") then
+        -- Both integrations use the same right-side column as native tabs.
+        local above = professions.ProfessionsOverviewTab
+        for _, professionTab in ipairs(professions.rightProfessionTabs or {}) do
+            if professionTab:IsShown() then above = professionTab end
+        end
+        if above then
+            local offset = GetProfessionTabOffset(tab, professions, above)
+            tab:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -offset - 2)
+            return
+        end
+    end
+    tab:SetPoint("BOTTOMLEFT", professions, "BOTTOMRIGHT", -2, 12)
+end
+
 function addon:EnsureProfessionTab()
+    if ProfessionUIBlocked(self) then return end
     local professions = _G.ProfessionsFrame
     if not professions then return end
-    if self.profession_scan_tab then return self.profession_scan_tab end
-
-    local sidebar = _G.ProfessionsFrameTabSideBar
-    if not sidebar then
-        sidebar = _G.CreateFrame("Frame", nil, professions)
-        sidebar:SetWidth(1)
-        sidebar.Tabs = {}
-        sidebar.selTab = 0
-        _G.ProfessionsFrameTabSideBar = sidebar
-        AnchorProfessionSidebar(sidebar, professions)
+    if self.profession_scan_tab then
+        self.positionProfessionTab()
+        return self.profession_scan_tab
     end
 
-    if not sidebar.Tabs[1] then
-        local reserved = _G.CreateFrame("Frame", nil, sidebar)
-        reserved:Hide()
-        sidebar.Tabs[1] = reserved
-    end
-    local index = 2
-    while sidebar.Tabs[index] do index = index + 1 end
-    -- Keep native dimensions, side-tab artwork and mouse/selection handling intact.
-    local tab = _G.CreateFrame("Frame", "AckisRecipeListProfessionTab", professions, "QuestLogTabButtonTemplate")
-    tab:SetFrameLevel(professions:GetFrameLevel() + 20)
+    -- Anchor beside Professions and keep the addon tab out of its SmartNavigation child tree.
+    local tab = _G.CreateFrame("Frame", "AckisRecipeListProfessionTab", _G.UIParent, "QuestLogTabButtonTemplate")
+    tab:Hide()
+    tab:HookScript("OnHide", function()
+        if _G.GameTooltip:IsOwned(tab) then _G.GameTooltip:Hide() end
+    end)
     tab.displayMode = _G.QuestLogDisplayMode.Quests
     tab.tooltipText = "Ackis Recipe List - " .. L["Scan"] .. "\n" .. L["SCAN_RECIPES_DESC"]
     local function restoreIcon()
@@ -843,33 +978,53 @@ function addon:EnsureProfessionTab()
     end
     -- SetChecked updates the native icon atlas; restore only Ackis' icon.
     _G.hooksecurefunc(tab, "SetChecked", restoreIcon)
-    tab:SetCustomOnMouseUpHandler(function()
+    local function openAckis()
         addon:ToggleProfessionPanel("LeftButton")
         addon:SyncProfessionTab()
-    end)
-    tab:SetChecked(false)
-    local function positionTab()
-        tab:ClearAllPoints()
-        -- Keep the sidebar launcher at the bottom, away from the upper tabs
-        tab:SetPoint("BOTTOMLEFT", professions, "BOTTOMRIGHT", -2, 12)
     end
-    positionTab()
-    tab:HookScript("OnShow", positionTab)
-    tab.sidebarIndex = index
-    sidebar.Tabs[index] = tab
+    tab:SetCustomOnMouseUpHandler(openAckis)
+    tab:SetChecked(false)
+    local positionPending
+    local function positionTab()
+        if private.addonEnabled == false then return end
+        if positionPending then return end
+        positionPending = true
+        -- Native show/hide and tab callbacks can run inside Blizzard's gamepad focus transition.
+        _G.C_Timer.After(0, function()
+            positionPending = nil
+            if private.addonEnabled == false then return end
+            local visible = IsBlizzardProfessionWindowVisible(professions)
+            if visible and not ProfessionUIBlocked(addon) then
+                PositionProfessionTab(tab, professions)
+                local wasShown = tab:IsShown()
+                tab:Show()
+                if not wasShown then addon:WatchProfessionGuideTip() end
+            elseif not visible then
+                tab:Hide()
+            end
+        end)
+    end
+    self.positionProfessionTab = positionTab
+    _G.EventRegistry:RegisterCallback("ProfessionsFrame.TabSet", positionTab, self)
     self.profession_scan_tab = tab
+    private.InitializeGamepadProfessionTab(tab, openAckis)
     if self.scan_button then self.scan_button:Hide() end
     self.scan_button = tab
-    professions:HookScript("OnHide", function() addon:TRADE_SKILL_CLOSE() end)
-    professions:HookScript("OnShow", function()
-        if private.addonEnabled == false then return end
-        positionTab(); tab:Show(); addon:WatchProfessionGuideTip()
+    professions:HookScript("OnHide", function()
+        positionTab()
+        _G.C_Timer.After(0, function()
+            if not professions:IsVisible() and private.addonEnabled ~= false then addon:TRADE_SKILL_CLOSE() end
+        end)
     end)
+    professions:HookScript("OnShow", positionTab)
+    positionTab()
     self:SyncProfessionTab()
     return tab
 end
 
 function addon:InitializeProfessionIntegration()
+    if ProfessionUIBlocked(self) then return end
+    self:EnsureSkilletButton()
     if self:EnsureProfessionTab() then return end
     if self.professionLoader then self.professionLoader:RegisterEvent("ADDON_LOADED"); return end
     local loader = _G.CreateFrame("Frame")
@@ -884,14 +1039,16 @@ function addon:InitializeProfessionIntegration()
 end
 
 function addon:TRADE_SKILL_SHOW()
-    if private.addonEnabled == false then return end
+    if private.addonEnabled == false or ProfessionUIBlocked(self) then return end
+    self:EnsureSkilletButton()
     local tab = self:EnsureProfessionTab()
-    if tab then tab:Show() end
+    if tab then self.positionProfessionTab() end
     self:SyncProfessionTab()
     self:WatchProfessionGuideTip()
 end
 
 function addon:TRADE_SKILL_CLOSE()
+    if self.positionProfessionTab then self.positionProfessionTab() end
     self:HideProfessionGuideTip()
     if self.professionGuideTipWatcher then self.professionGuideTipWatcher:UnregisterAllEvents() end
     if private.CancelPendingScan then private.CancelPendingScan() end
@@ -1131,6 +1288,57 @@ do
     end
 end -- do-block
 
+do
+    local loadScheduled
+    local attemptedModules = {}
+    local combatWaiter
+
+    function private.RefreshNPCTooltipProfessions()
+        local profile = addon.db and addon.db.profile
+        if not private.addonEnabled or not profile or not profile.recipes_in_tooltips or not profile.all_profession_drops_in_tooltips then
+            if combatWaiter then combatWaiter:UnregisterEvent("PLAYER_REGEN_ENABLED") end
+            return
+        end
+        if loadScheduled then return end
+
+        if _G.InCombatLockdown() then
+            if not combatWaiter then
+                combatWaiter = _G.CreateFrame("Frame")
+                combatWaiter:SetScript("OnEvent", private.RefreshNPCTooltipProfessions)
+            end
+            combatWaiter:RegisterEvent("PLAYER_REGEN_ENABLED")
+            return
+        end
+        if combatWaiter then combatWaiter:UnregisterEvent("PLAYER_REGEN_ENABLED") end
+
+        -- Let the current Settings or AceAddon lifecycle callback finish before loading modules.
+        loadScheduled = true
+        _G.C_Timer.After(0, function()
+            loadScheduled = false
+            local profile = addon.db.profile
+            if not private.addonEnabled or not profile.recipes_in_tooltips or not profile.all_profession_drops_in_tooltips then
+                return
+            end
+            if _G.InCombatLockdown() then
+                private.RefreshNPCTooltipProfessions()
+                return
+            end
+
+            local moduleNames = private.LOCALIZED_PROFESSION_NAME_TO_MODULE_NAME_MAPPING
+            for professionName, skillLevel in pairs(private.Player.professions) do
+                local moduleName = moduleNames[professionName]
+                if skillLevel > 0 and moduleName and not attemptedModules[moduleName] then
+                    attemptedModules[moduleName] = true
+                    local exists, _, _, _, reason = private.GetAddOnInfo(FOLDER_NAME .. "_" .. moduleName)
+                    if exists and reason ~= "MISSING" and reason ~= "DISABLED" then
+                        addon:InitializeProfession(professionName, true)
+                    end
+                end
+            end
+        end)
+    end
+end
+
 local function OpenProfileOptions()
     if not addon.optionsFrame or not addon.optionsFrame.Profiles then addon:SetupOptions() end
     OpenOptions(addon.optionsFrame.Profiles)
@@ -1162,7 +1370,7 @@ local SUBCOMMAND_FUNCS = {
 
 -- Check whether a trade skill window is open
 local function IsTradeSkillOpen()
-    if not _G.ProfessionsFrame or not _G.ProfessionsFrame:IsVisible() then
+    if not (_G.ProfessionsFrame and _G.ProfessionsFrame:IsVisible()) and not IsSkilletProfessionOpen() then
         return false
     end
     local _, name = private.GetTradeSkillLine()

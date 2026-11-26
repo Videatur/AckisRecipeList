@@ -53,17 +53,17 @@ function private.InitializeFrame()
 	MainPanel:SetFrameStrata("MEDIUM")
 	MainPanel:SetToplevel(true)
 	MainPanel:SetClampedToScreen(true)
-	MainPanel:SetClampRectInsets(0, 0, 0, -32)
+	function MainPanel:SetGamepadFooterHeight(height)
+		self:SetClampRectInsets(0, 0, 0, -32 - height)
+	end
+	MainPanel:SetGamepadFooterHeight(0)
 
 	MainPanel:SetHitRectInsets(0, 0, 0, 0)
 	MainPanel:EnableMouse(true)
-	MainPanel:EnableKeyboard(true)
 	MainPanel:SetMovable(true)
 
 	MainPanel.is_expanded = false
 
-	-- Let the user banish the MainPanel with the ESC key.
-	table.insert(_G.UISpecialFrames, "ARL_MainPanel")
 	addon.Frame = MainPanel
 
 	do
@@ -274,7 +274,6 @@ function private.InitializeFrame()
 				self:SetWidth(self.normal_width)
 				self:SetHeight(440)
 				self:SetHitRectInsets(0, 0, 0, 0)
-				self:SetClampRectInsets(0, 0, 0, -32)
 
 
 			else
@@ -314,7 +313,6 @@ function private.InitializeFrame()
 				self:SetWidth(self.expanded_width)
 				self:SetHeight(450)
 				self:SetHitRectInsets(0, 0, 0, 0)
-				self:SetClampRectInsets(0, 0, 0, -32)
 
 
 			end
@@ -440,8 +438,10 @@ function private.InitializeFrame()
 
                 -- If not shown, save the current sound effects setting then set it to 0.
 				local cVarSfx
-				local isPanelShown = (addon.scan_button and addon.scan_button.GetParent and addon.scan_button:GetParent():IsVisible()) or false
-                if not isPanelShown then
+				local professions = _G.ProfessionsFrame
+				local gamepadUI = _G.InputUtil and _G.InputUtil.IsGamepadUIEnabled and _G.InputUtil.IsGamepadUIEnabled()
+				local closeAfterScan = not gamepadUI and not (professions and professions:IsVisible())
+                if closeAfterScan then
                     cVarSfx = private.GetCVar("Sound_EnableSFX")
                     private.SetCVar("Sound_EnableSFX", "0")
                 end
@@ -453,7 +453,7 @@ function private.InitializeFrame()
                 addon:Print("Open the selected profession from the spellbook before scanning.")
                 ScanCurrentProfession()
 
-                if not isPanelShown then
+                if closeAfterScan then
                     _G.CloseTradeSkill()
                     private.SetCVar("Sound_EnableSFX", cVarSfx or "1")
 				end
@@ -881,6 +881,7 @@ function private.InitializeFrame()
 			return addon.db.profile.ignoreexclusionlist
 		end, function()
 			addon.db.profile.ignoreexclusionlist = not addon.db.profile.ignoreexclusionlist
+			private.IncrementFilterVersion()
 			MainPanel.list_frame:Update(nil, false)
 		end)
 		option:SetTooltip(function(tooltip)
@@ -1121,6 +1122,8 @@ function private.InitializeFrame()
 	MainPanel.progress_bar:SetPoint("TOPLEFT", MainPanel.list_frame, "BOTTOMLEFT", 0, -4)
 	MainPanel.progress_bar:SetPoint("RIGHT", MainPanel.list_frame, "RIGHT", 0, 0)
 	private.InitializeTabs()
+	private.InitializeGamepadList(MainPanel)
+	private.RegisterEscapePanel(MainPanel)
 	addon:SyncProfessionTab()
 
 	private.InitializeFrame = nil

@@ -243,6 +243,10 @@ function private.InitializeFilterPanel()
 	FilterPanel:SetMovable(false)
 	FilterPanel:SetHitRectInsets(5, 5, 5, 5)
 	FilterPanel:Hide()
+	FilterPanel:HookScript("OnHide", function()
+		local list = MainPanel.list_frame
+		if list and list.UpdateGamepadFocus then list:UpdateGamepadFocus() end
+	end)
 
 	function FilterPanel:CreateSubMenu(menu_name)
 		local submenu = _G.CreateFrame("Frame", nil, self)
@@ -255,6 +259,7 @@ function private.InitializeFilterPanel()
 		self[menu_name] = submenu
 		return submenu
 	end
+
 	MainPanel.filter_menu = FilterPanel
 
 	-- ----------------------------------------------------------------------------
@@ -341,6 +346,27 @@ function private.InitializeFilterPanel()
 	MainPanel.menu_toggle_player = player
 	MainPanel.menu_toggle_rep = rep
 	-- No MainPanel.menu_toggle_misc assignment: hidden
+	FilterPanel.gamepadCategories = { general, obtain, binding, item, quality, player, rep }
+
+	function FilterPanel:GetGamepadControls()
+		local controls = {}
+		for _, info in pairs(self.value_map) do
+			local check = info.cb
+			if check and check:IsVisible() and check:IsEnabled() then
+				controls[#controls + 1] = check
+			end
+		end
+		table.sort(controls, function(a, b)
+			local aTop, bTop = a:GetTop() or 0, b:GetTop() or 0
+			if aTop ~= bTop then return aTop > bTop end
+			return (a:GetLeft() or 0) < (b:GetLeft() or 0)
+		end)
+		for _, button in ipairs(self.gamepadPages or {}) do
+			if button:IsVisible() and button:IsEnabled() then controls[#controls + 1] = button end
+		end
+		if MainPanel.filter_reset:IsVisible() then controls[#controls + 1] = MainPanel.filter_reset end
+		return controls
+	end
 
 	-- ----------------------------------------------------------------------------
 	-- Create FilterPanel.general, and set its scripts.
@@ -798,6 +824,7 @@ function private.InitializeFilterPanel()
 		nextPage:SetSize(30, 22)
 		nextPage:SetPoint("BOTTOMRIGHT", -10, 8)
 		nextPage:SetText(">")
+		FilterPanel.gamepadPages = { previous, nextPage }
 		local pageLabel = rep_frame:CreateFontString(nil, "OVERLAY", "QuestFontNormalSmall")
 		pageLabel:SetPoint("BOTTOM", 0, 12)
 		local page = 1

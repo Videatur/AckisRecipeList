@@ -638,6 +638,9 @@ L["UI_SCALE_DESC"] = "Changes the scale of the UI. Ranges from .5 to 1.5 (1 is d
 L["Ulthir"] = true
 L["Una"] = true
 L["UNIT_MAX_TOOLTIPS_DESC"] = "Maximum number of recipes to show in tooltips."
+L["Recipe Drops Before Scanning"] = "Recipe Drops Before Scanning"
+L["UNIT_UNSCANNED_PROFESSION_DROPS_DESC"] = "Shows recipe drops for your learned professions, even before you scan them."
+L["UNIT_TOOLTIP_MORE_RECIPES"] = "+%d more recipes"
 L["UNIT_TOOLTIPS_DESC"] =
 "Toggles whether or not to display unknown recipes in the tooltips of the vendors, trainers, or mobs which carry them."
 L["UNKNOWN_DESC"] = "Include all unknown recipes in the scan."
@@ -851,10 +854,15 @@ L["Mekgineer Thermaplugg"] = true
 L["Solakar Flamewreath"] = true
 L["Ragnaros"] = true
 L["RECIPE_TRACKING_REMOVE"] = "Right-click to stop tracking this source."
+L["RECIPE_TRACKING_COORDINATES"] = "Left-click to show coordinates in chat."
 L["RECIPE_TRACKING_HEADER"] = "Recipes"
 
 -- Shared profession-guide UI.
 L["Guide"] = true
+L["Crafted item"] = true
+L["Link in chat"] = true
+L["Open chat to insert the recipe link."] = true
+L["Filter categories"] = true
 L["Select guide"] = true
 L["Current guide: %s\nOpen the menu to select a guide."] = true
 L["None"] = true

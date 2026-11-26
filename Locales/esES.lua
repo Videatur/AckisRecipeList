@@ -594,6 +594,9 @@ L["UI_SCALE_DESC"] = "Cambia la escala del interface. Oscila de .5 a 1.5 (1 es l
 L["Ulthir"] = true
 L["Una"] = true
 L["UNIT_MAX_TOOLTIPS_DESC"] = "Numero maximo de recetas a mostrar en la ventana"
+L["Recipe Drops Before Scanning"] = "Recetas de botín antes del escaneo"
+L["UNIT_UNSCANNED_PROFESSION_DROPS_DESC"] = "Muestra las recetas de botín de tus profesiones aprendidas aunque aún no las hayas escaneado."
+L["UNIT_TOOLTIP_MORE_RECIPES"] = "+%d recetas más"
 L["UNIT_TOOLTIPS_DESC"] = "Alterna el mostrar recetas desconocidas en los tooltips de los vendedores, entrenadores, o monstruos que las llevan."
 L["UNKNOWN_DESC"] = "Incluir todas las recetas no aprendidas en la exploración."
 L["Using Filters"] = "Usando filtros"
@@ -828,6 +831,7 @@ L["Mekgineer Thermaplugg"] = "Mekigeniero Termochufe"
 L["Solakar Flamewreath"] = "Solakar Corona de Fuego"
 L["Ragnaros"] = "Ragnaros"
 L["RECIPE_TRACKING_REMOVE"] = "Haz clic derecho para dejar de seguir esta fuente."
+L["RECIPE_TRACKING_COORDINATES"] = "Haz clic izquierdo para mostrar las coordenadas en el chat."
 L["RECIPE_TRACKING_HEADER"] = "Recetas"
 
 -- Shared profession-guide UI.
@@ -931,3 +935,8 @@ L["Gather ore"] = "Recolectar mineral"
 L["Iron / Gold"] = "Hierro / Oro"
 L["Mithril / Truesilver"] = "Mitril / Veraplata"
 L["Thorium veins"] = "Filones de torio"
+
+L["Crafted item"] = "Objeto fabricado"
+L["Link in chat"] = "Enlazar en el chat"
+L["Open chat to insert the recipe link."] = "Abre el chat para insertar el enlace de la receta."
+L["Filter categories"] = "Categorías de filtros"

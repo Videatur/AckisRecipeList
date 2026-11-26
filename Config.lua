@@ -732,10 +732,27 @@ local function GetDisplayOptions()
 							end,
 							set = function(info, value)
 								addon.db.profile.recipes_in_tooltips = value
+								private.RefreshNPCTooltipProfessions()
+							end,
+						},
+						unit_all_profession_drops = {
+							order = 25,
+							type = "toggle",
+							name = L["Recipe Drops Before Scanning"],
+							desc = L["UNIT_UNSCANNED_PROFESSION_DROPS_DESC"],
+							disabled = function()
+								return not addon.db.profile.recipes_in_tooltips
+							end,
+							get = function()
+								return addon.db.profile.all_profession_drops_in_tooltips
+							end,
+							set = function(info, value)
+								addon.db.profile.all_profession_drops_in_tooltips = value
+								private.RefreshNPCTooltipProfessions()
 							end,
 						},
 						unit_max_tooltip = {
-							order = 25,
+							order = 26,
 							type = "range",
 							name = _G.MAXIMUM,
 							desc = L["UNIT_MAX_TOOLTIPS_DESC"],
@@ -754,7 +771,7 @@ local function GetDisplayOptions()
 							end,
 						},
 						tooltip_hint = {
-							order = 26,
+							order = 27,
 							type = "toggle",
 							name = L["TOOLTIP_HINT"],
 							desc = L["TOOLTIP_HINT_DESC"],
@@ -787,6 +804,7 @@ local defaultPaths = {
     tooltip_fontsize = { "tooltip", "acquire_fontsize" },
     tooltipscale = { "tooltip", "scale" },
     unit_tooltip = { "recipes_in_tooltips" },
+    unit_all_profession_drops = { "all_profession_drops_in_tooltips" },
     unit_max_tooltip = { "max_recipes_in_tooltips" },
     tooltip_hint = { "hide_tooltip_hint" },
 }
@@ -865,7 +883,7 @@ local function CreateNativeDocumentation(optionsTable)
     return panel
 end
 
-local function AddNativeOptions(category, layout, group, path)
+local function AddNativeOptions(category, group, path)
     local Settings = _G.Settings
     local state = addon.nativeOptionGroups[path]
     if not state then
@@ -886,22 +904,22 @@ local function AddNativeOptions(category, layout, group, path)
                         if child.option.type == "description" then description = child.option.name; break end
                     end
                     if not state.headers[key] then
-                        layout:AddInitializer(_G.CreateSettingsListSectionHeaderInitializer(option.name, description))
+                        Settings.RegisterInitializer(category, _G.CreateSettingsListSectionHeaderInitializer(option.name, description))
                         state.headers[key] = true
                     end
-                    AddNativeOptions(category, layout, option, path .. "_" .. key)
+                    AddNativeOptions(category, option, path .. "_" .. key)
                 elseif option.type == "header" or key == "version" then
                     if option.name:find("%S") then
                         local nextOption = sorted[index + 1] and sorted[index + 1].option
                         local description = option.desc or (nextOption and nextOption.type == "description" and nextOption.name)
-                        layout:AddInitializer(_G.CreateSettingsListSectionHeaderInitializer(option.name, description))
+                        Settings.RegisterInitializer(category, _G.CreateSettingsListSectionHeaderInitializer(option.name, description))
                     end
                 elseif option.type == "execute" then
+                    -- Keep action buttons out of the shared search index.
                     initializer = _G.CreateSettingsButtonInitializer("", option.name, function()
                         option.func(info)
                         if private.RefreshNativeOptions then private.RefreshNativeOptions() end
-                    end, option.desc, true)
-                    layout:AddInitializer(initializer)
+                    end, option.desc, false)
                 elseif option.type == "toggle" or option.type == "range" or option.type == "select" then
                     local default = NativeDefault(key, option, info)
                     local variableType = option.type == "toggle" and "boolean" or type(default)
@@ -917,15 +935,15 @@ local function AddNativeOptions(category, layout, group, path)
                         addon.nativeOptionVariables[#addon.nativeOptionVariables + 1] = variable
                     end
                     if option.type == "toggle" then
-                        initializer = Settings.CreateCheckbox(category, setting, option.desc)
+                        initializer = Settings.CreateCheckboxInitializer(setting, nil, option.desc)
                     elseif option.type == "range" then
                         local sliderOptions = Settings.CreateSliderOptions(option.min, option.max, option.step)
                         sliderOptions:SetLabelFormatter(_G.MinimalSliderWithSteppersMixin.Label.Right, function(value)
                             return option.step < 1 and ("%.2f"):format(value) or tostring(value)
                         end)
-                        initializer = Settings.CreateSlider(category, setting, sliderOptions, option.desc)
+                        initializer = Settings.CreateSliderInitializer(setting, sliderOptions, option.desc)
                     else
-                        initializer = Settings.CreateDropdown(category, setting, function()
+                        initializer = Settings.CreateDropdownInitializer(setting, function()
                             local values = type(option.values) == "function" and option.values(info) or option.values
                             local keys = {}
                             for value in pairs(values) do keys[#keys + 1] = value end
@@ -936,9 +954,17 @@ local function AddNativeOptions(category, layout, group, path)
                         end, option.desc)
                     end
                 end
+                if initializer then
+                    -- The CreateCheckbox/Slider/Dropdown helpers write directly to the
+                    -- shared layout. Register through Blizzard's Settings delegate.
+                    Settings.RegisterInitializer(category, initializer)
+                end
             end
             if initializer then
                 controls[key] = initializer
+                if key == "unit_max_tooltip" or key == "unit_all_profession_drops" then
+                    initializer:AddEvaluateStateCVar(state.settings.unit_tooltip:GetVariable())
+                end
                 if option.disabled ~= nil then
                     initializer:AddModifyPredicate(function()
                         return not (type(option.disabled) == "function" and option.disabled(info) or option.disabled == true)
@@ -948,14 +974,13 @@ local function AddNativeOptions(category, layout, group, path)
             state.completed[key] = true
         end
     end
-    -- Native dependency tracking updates this slider as soon as its checkbox changes.
-    if controls.unit_max_tooltip and controls.unit_tooltip then
-        controls.unit_max_tooltip:SetParentInitializer(controls.unit_tooltip)
-    end
 end
 
 function private.RefreshNativeOptions()
-    for _, variable in ipairs(addon.nativeOptionVariables or {}) do _G.Settings.NotifyUpdate(variable) end
+    for _, variable in ipairs(addon.nativeOptionVariables or {}) do
+        -- NotifyUpdate dispatches to Blizzard's shared settings controls.
+        _G.securecallfunction(_G.Settings.NotifyUpdate, variable)
+    end
 end
 
 local function RegisterOptions(self)
@@ -966,18 +991,19 @@ local function RegisterOptions(self)
 	local Settings = _G.Settings
 	self.nativeOptionVariables = self.nativeOptionVariables or {}
 	self.nativeOptionGroups = self.nativeOptionGroups or {}
-	self.nativeOptionLayouts = self.nativeOptionLayouts or {}
-	local category, layout = self.settingsCategory, self.nativeOptionLayouts.general
+	-- Keep addon bookkeeping off the native category object. Blizzard retains
+	-- that object in the shared Settings panel, including its keybinding UI.
+	self.optionsFrame = self.optionsFrame or {}
+	local category = self.settingsCategory
 	if not category then
-		category, layout = Settings.RegisterVerticalLayoutCategory(private.addon_display_name or private.addon_name)
-		self.settingsCategory, self.optionsFrame = category, category
-		self.nativeOptionLayouts.general = layout
+		category = Settings.RegisterVerticalLayoutCategory(private.addon_display_name or private.addon_name)
+		self.settingsCategory = category
 	end
 	if not self.settingsCategoryRegistered then
 		Settings.RegisterAddOnCategory(category)
 		self.settingsCategoryRegistered = true
 	end
-	AddNativeOptions(category, layout, fullOptions().args.general, "general")
+	AddNativeOptions(category, fullOptions().args.general, "general")
 
 	-- Register module options
 	self:RegisterModuleOptions("Display", GetDisplayOptions(), _G.DISPLAY_OPTIONS)
@@ -1005,12 +1031,12 @@ function addon:RegisterModuleOptions(name, optionsTable, displayName)
 	modularOptions[name] = optionsTable
 	if options then options.args[name] = type(optionsTable) == "function" and optionsTable() or optionsTable end
 	if name == "Display" or name == "Waypoint" then
-		local category, layout = self.optionsFrame[name], self.nativeOptionLayouts[name]
+		local category = self.optionsFrame[name]
 		if not category then
-			category, layout = _G.Settings.RegisterVerticalLayoutSubcategory(self.settingsCategory, displayName)
-			self.optionsFrame[name], self.nativeOptionLayouts[name] = category, layout
+			category = _G.Settings.RegisterVerticalLayoutSubcategory(self.settingsCategory, displayName)
+			self.optionsFrame[name] = category
 		end
-		AddNativeOptions(category, layout, optionsTable, name)
+		AddNativeOptions(category, optionsTable, name)
 	elseif name == "Documentation" then
 		if not self.optionsFrame[name] then
 			self.documentationPanel = self.documentationPanel or CreateNativeDocumentation(optionsTable)

@@ -1,6 +1,3 @@
--- Ackis Forever location registry. Snapshot: 2026-09-30; instance geography corrected 2026-10-04.
--- Source: https://www.wowhead.com/forever/zones
-
 local FOLDER_NAME, private = ...
 local HBD = _G.LibStub("HereBeDragons-2.0")
 local UNKNOWN = _G.UNKNOWN or "Unknown"
@@ -19,6 +16,7 @@ local ZONE_REGISTRY = {
 	BLACKROCK_MOUNTAIN = {name = "Blackrock Mountain", areaIDs = {25}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
 	BLACKROCK_SPIRE = {name = "Blackrock Spire", areaIDs = {1583, 17804}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
 	BLACKWING_LAIR = {name = "Blackwing Lair", areaIDs = {2677}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
+	BLACKMAW_HOLD = {name = "Blackmaw Hold", areaIDs = {16554}, continent = 1, kind = "instance", parent = "KALIMDOR"},
 	BLASTED_LANDS = {name = "Blasted Lands", areaIDs = {4, 16115}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
 	BURNING_STEPPES = {name = "Burning Steppes", areaIDs = {46, 16508}, continent = 2, kind = "zone", parent = "EASTERN_KINGDOMS"},
 	CAVERNS_OF_TIME = {name = "Caverns of Time", areaIDs = {1941}, continent = 1, kind = "zone", parent = "KALIMDOR"},
@@ -103,6 +101,7 @@ local ZONE_REGISTRY = {
 	THE_SCARAB_DAIS = {name = "The Scarab Dais", areaIDs = {16295}, continent = 0, kind = "instance"},
 	THE_STOCKADE = {name = "The Stockade", areaIDs = {717}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
 	THE_TAINTED_SCAR = {name = "The Tainted Scar", areaIDs = {15531}, continent = 2, kind = "instance", parent = "BLASTED_LANDS"},
+	THE_SHAPERS_TERRACE = {name = "The Shaper's Terrace", areaIDs = {16667}, continent = 1, kind = "instance", parent = "UNGORO_CRATER"},
 	THE_TEMPLE_OF_ATALHAKKAR = {name = "The Temple of Atal'Hakkar", areaIDs = {1477}, continent = 2, kind = "instance", parent = "EASTERN_KINGDOMS"},
 	THE_VEILED_SEA = {name = "The Veiled Sea", areaIDs = {457}, continent = 1, kind = "zone", parent = "KALIMDOR"},
 	THOUSAND_NEEDLES = {name = "Thousand Needles", areaIDs = {400}, continent = 1, kind = "zone", parent = "KALIMDOR"},
@@ -126,11 +125,15 @@ local ZONE_REGISTRY = {
 }
 private.ZONE_REGISTRY = ZONE_REGISTRY
 
+-- Ignore ASCII separators without stripping the bytes of UTF-8 names.
+local NAME_SEPARATORS = "[^A-Za-z0-9\128-\255]"
 local function Normalize(name)
-	return name and name:lower():gsub("[^%w]", "")
+	if not name then return nil end
+	local key = name:gsub(NAME_SEPARATORS, ""):gsub("[A-Z]", string.lower)
+	return key ~= "" and key or nil
 end
 
--- Build one English-name index. Lookup and localization are cached afterwards.
+-- Index the names supplied by HereBeDragons for matching registry entries.
 local mapData = HBD.mapData or {}
 local mapsByName, mapsByLocalizedName, localizedNames = {}, {}, {}
 for mapID, data in pairs(mapData) do
@@ -272,10 +275,11 @@ end
 
 local function KeyFromLocalized(name)
 	local words = {}
-	for word in name:gsub("[^%w]+", " "):gmatch("%S+") do
-		words[#words + 1] = word:sub(1, 1):upper() .. word:sub(2):lower()
+	for word in name:gsub(NAME_SEPARATORS .. "+", " "):gmatch("[^ ]+") do
+		word = word:gsub("[A-Z]", string.lower)
+		words[#words + 1] = word:gsub("^[a-z]", string.upper)
 	end
-	return table.concat(words, "")
+	return #words > 0 and table.concat(words, "") or name
 end
 
 local function CreateLocation(label, name, mapID, continent)
@@ -347,9 +351,8 @@ local function FindLocalizedMap(name)
 	if not localizedMapIndex then
 		localizedMapIndex = {}
 		for mapID in pairs(mapData) do
-			local localized = MapName(mapID)
-			if localized then
-				local key = Normalize(localized)
+			local key = Normalize(MapName(mapID))
+			if key then
 				local previous = localizedMapIndex[key]
 				if not previous or mapID < previous then localizedMapIndex[key] = mapID end
 			end

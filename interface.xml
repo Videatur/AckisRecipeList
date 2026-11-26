@@ -3,6 +3,7 @@
 ..\FrameXML\UI.xsd">
 
     <Include file="Interface\Common.lua"/>
+    <Include file="Interface\Gamepad.lua"/>
     <Include file="Interface\ListEntry.lua"/>
     <Include file="Interface\Guide.lua"/>
     <Include file="Interface\Tabs.lua"/>

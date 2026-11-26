@@ -175,6 +175,7 @@ function private.InitializeListFrame()
 	ListFrame:EnableMouse(true)
 	ListFrame:EnableMouseWheel(true)
 	ListFrame:SetScript("OnHide", function(self)
+		self:HideGamepadDetails()
 		ReleaseAcquireTooltip()
 		SpellTooltip:Hide()
 		_G.GameTooltip:Hide()
@@ -258,7 +259,7 @@ function private.InitializeListFrame()
 		if self and self.categoryHeader and self.categoryHeader:IsShown() then
 			self.categoryHeader:CheckHighlightTitle(true)
 		end
-		if ListFrame.selected_entry then
+		if ListFrame.selected_entry or ListFrame.gamepadDetails then
 			return
 		end
 		if not self or not self.entry_index or self.entry_index == 0 then
@@ -271,7 +272,7 @@ function private.InitializeListFrame()
 		if self and self.categoryHeader and self.categoryHeader:IsShown() then
 			self.categoryHeader:CheckHighlightTitle(false)
 		end
-		if ListFrame.selected_entry then
+		if ListFrame.selected_entry or ListFrame.gamepadDetails then
 			return
 		end
 		ReleaseAcquireTooltip()
@@ -279,7 +280,57 @@ function private.InitializeListFrame()
         _G.GameTooltip:Hide()
 	end
 
-	local function ListItem_OnClick(self, button, down)
+	local pendingChatLink, pendingChatTicker, pendingChatDeadline
+	local function InsertGamepadChatLink(link)
+		local chat = _G.ChatFrameUtil
+		local findActiveBox = chat and chat.GetActiveWindow or _G.ChatEdit_GetActiveWindow
+		if not findActiveBox then return end
+		local editBox = findActiveBox()
+		if editBox and editBox:HasFocus() then
+			if pendingChatTicker then pendingChatTicker:Cancel() end
+			pendingChatLink, pendingChatTicker = nil, nil
+			editBox:Insert(link)
+			return
+		end
+
+		-- Opening chat from addon code can carry addon taint into the native binding stack.
+		pendingChatLink = link
+		pendingChatDeadline = _G.GetTime() + 30
+		if pendingChatTicker then return end
+		addon:Print(L["Open chat to insert the recipe link."])
+		pendingChatTicker = _G.C_Timer.NewTicker(0.1, function(ticker)
+			local activeBox = findActiveBox()
+			if private.addonEnabled == false or _G.GetTime() >= pendingChatDeadline then
+				pendingChatLink = nil
+			elseif activeBox and activeBox:HasFocus() then
+				activeBox:Insert(pendingChatLink)
+				pendingChatLink = nil
+			end
+			if not pendingChatLink then
+				ticker:Cancel()
+				pendingChatTicker = nil
+			end
+		end)
+	end
+
+	local function InsertChatLink(link)
+		if not link then return end
+		if _G.InputUtil and _G.InputUtil.IsGamepadUIEnabled and _G.InputUtil.IsGamepadUIEnabled() then
+			InsertGamepadChatLink(link)
+			return
+		end
+		local chat = _G.ChatFrameUtil
+		local insert = chat and chat.InsertLink or _G.ChatEdit_InsertLink
+		if insert(link) then return end
+		local chooseBox = chat and chat.ChooseBoxForSend or _G.ChatEdit_ChooseBoxForSend
+		local activate = chat and chat.ActivateChat or _G.ChatEdit_ActivateChat
+		local editBox = chooseBox()
+		if not editBox then return end
+		activate(editBox)
+		editBox:Insert(link)
+	end
+
+	local function ActivateListItem(self, button, fromGamepad)
 		local clickedIndex = self.entry_index
 
 		if not clickedIndex or clickedIndex == 0 then
@@ -293,7 +344,7 @@ function private.InitializeListFrame()
             return
         end
 
-        if button == "LeftButton" and not _G.IsModifierKeyDown() and listEntry.acquisitionSourceRow then
+        if button == "LeftButton" and (fromGamepad or not _G.IsModifierKeyDown()) and listEntry.acquisitionSourceRow then
             if listEntry.waypointTarget then
                 addon:AddWaypoint(recipe, listEntry:AcquireType(), listEntry:Location(), listEntry:NPCID())
             end
@@ -324,7 +375,7 @@ function private.InitializeListFrame()
 				entry_button.selected_texture:Show()
 				ListFrame.selected_entry = listEntry
 			end
-		elseif recipe and _G.IsModifierKeyDown() then
+        elseif recipe and not fromGamepad and _G.IsModifierKeyDown() then
             local hyperLink
 
             if _G.IsControlKeyDown() then
@@ -354,12 +405,7 @@ function private.InitializeListFrame()
 				ListFrame:Update(nil, false)
             end
 
-            if hyperLink and not _G.ChatEdit_InsertLink(hyperLink) then
-                local editBox = _G.ChatEdit_ChooseBoxForSend()
-
-                _G.ChatEdit_ActivateChat(editBox)
-                editBox:Insert(hyperLink)
-            end
+            InsertChatLink(hyperLink)
         else
             local currentTab = MainPanel.current_tab
             if listEntry.is_expanded then
@@ -373,6 +419,80 @@ function private.InitializeListFrame()
 		end
 
 		ListFrame:Update(nil, true)
+	end
+
+	local function ListItem_OnClick(self, button)
+		ListFrame:HideGamepadDetails()
+		ActivateListItem(self, button, false)
+	end
+
+	function ListFrame:ActivateGamepadRow(row)
+		ActivateListItem(row, "LeftButton", true)
+	end
+
+	function ListFrame:LinkGamepadRecipe(row)
+		local entry = row and self.entries[row.entry_index]
+		local recipe = entry and entry.recipe
+		if recipe then InsertChatLink(private.GetSpellLink(recipe:SpellID())) end
+	end
+
+	local gamepadTooltip, gamepadProduct
+	function ListFrame:ShowGamepadDetails(row, showProduct)
+		local entry = row and self.entries[row.entry_index]
+		showProduct = showProduct and entry and entry.recipe ~= nil and not (entry.guideChapter or entry.guideShopping) or false
+		local productShown = gamepadProduct and gamepadProduct:IsShown() or false
+		if entry and gamepadTooltip and self.gamepadDetails == entry
+			and gamepadTooltip:IsShown() and productShown == showProduct then
+			return true, productShown
+		end
+		self:HideGamepadDetails()
+		if not entry or not (entry.recipe or entry.guideChapter or entry.guideShopping) then return false end
+		if self.selected_entry then
+			local selectedButton = self.selected_entry.button
+			if selectedButton then selectedButton.selected_texture:Hide() end
+			self.selected_entry = nil
+		end
+		gamepadTooltip, gamepadProduct = ListItem_ShowTooltip(entry, showProduct, true)
+		self.gamepadDetails = gamepadTooltip and entry
+		return gamepadTooltip ~= nil, gamepadProduct ~= nil
+	end
+
+	function ListFrame:HideGamepadProduct()
+		if not gamepadProduct then return false end
+		local wasShown = gamepadProduct:IsShown()
+		gamepadProduct:Hide()
+		if gamepadTooltip == gamepadProduct then
+			gamepadTooltip = nil
+			self.gamepadDetails = nil
+		end
+		gamepadProduct = nil
+		return wasShown
+	end
+
+	function ListFrame:HideGamepadDetails()
+		if not gamepadTooltip then return false end
+		local wasShown = self:HideGamepadProduct()
+		if not gamepadTooltip then return wasShown end
+		if gamepadTooltip == acquire_tip then
+			wasShown = gamepadTooltip:IsShown() or wasShown
+			ReleaseAcquireTooltip()
+		elseif gamepadTooltip == _G.GameTooltip then
+			local owner = self.gamepadDetails.button
+			if owner and gamepadTooltip:IsOwned(owner) then
+				wasShown = gamepadTooltip:IsShown()
+				gamepadTooltip:Hide()
+			end
+		end
+		gamepadTooltip = nil
+		self.gamepadDetails = nil
+		return wasShown
+	end
+
+	function ListFrame:ScrollGamepadDetails(direction)
+		local bar = gamepadTooltip and gamepadTooltip == acquire_tip and acquire_tip.Slider
+		if not (bar and acquire_tip:IsShown() and bar:IsShown()) then return false end
+		bar:SetValue(bar:GetValue() + direction * acquire_tip.ScrollStep)
+		return true
 	end
 
 	-- ----------------------------------------------------------------------------
@@ -714,6 +834,7 @@ function private.InitializeListFrame()
 	end
 
 	function ListFrame:Update(expand_mode, refresh)
+		self:HideGamepadDetails()
 		local searchText = MainPanel.search_editbox:GetText()
 		if popupSearch ~= searchText or popupProfession ~= private.CurrentProfession then
 			private.DismissDialogs()
@@ -786,6 +907,7 @@ function private.InitializeListFrame()
 			else
 				addon:Print(L["NO_DISPLAY"])
 			end
+			if self.UpdateGamepadFocus then self:UpdateGamepadFocus() end
 			return
 		end
 		local offset = 0
@@ -1081,12 +1203,13 @@ function private.InitializeListFrame()
 
 			-- This function could possibly have been called from a mouse click or by scrolling. Since, in those cases, the list entries have
 			-- changed, the mouse is likely over a different entry - a tooltip should be generated for it.
-			if listEntryButton:IsMouseOver() then
+			if not self.gamepadFocus and listEntryButton:IsMouseOver() then
 				Bar_OnEnter(listEntryButton)
 			end
 			buttonIndex = buttonIndex + 1
 			listEntryIndex = listEntryIndex + 1
 		end
+		if self.UpdateGamepadFocus then self:UpdateGamepadFocus() end
 	end
 end	-- InitializeListFrame()
 
@@ -1262,7 +1385,7 @@ do
 	-- ----------------------------------------------------------------------------
 	-- Main tooltip function.
 	-- ----------------------------------------------------------------------------
-	local function InitializeTooltips()
+	local function InitializeTooltips(fromGamepad)
 		local acquireTooltipAnchor = addon.db.profile.acquiretooltiplocation
 		local MainPanel = addon.Frame
 
@@ -1290,7 +1413,9 @@ do
 				_G.TipTac:AddModifiedTip(acquire_tip, true)
 			end
 
-			if acquireTooltipAnchor == "Right" then
+			if fromGamepad and (acquireTooltipAnchor == "Right" or acquireTooltipAnchor == "Mouse") then
+				acquire_tip:SetPoint("TOPLEFT", MainPanel, "TOPRIGHT", 4, 0)
+			elseif acquireTooltipAnchor == "Right" then
 				acquire_tip:SetPoint("TOPLEFT", MainPanel, "TOPRIGHT", MainPanel.is_expanded and -90 or -35, 0)
 			elseif acquireTooltipAnchor == "Left" then
 				acquire_tip:SetPoint("TOPRIGHT", MainPanel, "TOPLEFT")
@@ -1341,6 +1466,7 @@ do
             SpellTooltip:SetClampedToScreen(true)
             SpellTooltip:SetHyperlink(CraftedItemTooltipLink(recipe))
             SpellTooltip:Show()
+			return SpellTooltip
 		end
 	end
 
@@ -1354,26 +1480,25 @@ do
 		BIND_ON_PICKUP = L["RecipeBOPFilter"],
 	}
 
-	function ListItem_ShowTooltip(listEntry, showProduct)
+	function ListItem_ShowTooltip(listEntry, showProduct, fromGamepad)
 		if not listEntry then
 			return
 		end
 
         if listEntry.guideChapter or listEntry.guideShopping then
             ReleaseAcquireTooltip()
-            private.ShowGuideEntryTooltip(listEntry)
-            return
+            return private.ShowGuideEntryTooltip(listEntry)
         end
 		local recipe = listEntry.recipe
 
 		if not recipe then
 			return
 		end
-		InitializeTooltips()
+		InitializeTooltips(fromGamepad)
 
 		if not acquire_tip then
-			ShowProductTooltip(recipe, showProduct)
-			return
+			local product = ShowProductTooltip(recipe, showProduct)
+			return product, product
 		end
 	local name = recipe:LocalizedName()
 	--
@@ -1482,6 +1607,6 @@ do
 		for _, point in ipairs(points) do acquire_tip:SetPoint(unpack(point)) end
 		acquire_tip:SetClampedToScreen(true)
 		AlignTooltipSeparators()
-		ShowProductTooltip(recipe, showProduct)
+		return acquire_tip, ShowProductTooltip(recipe, showProduct)
 	end
 end	-- do

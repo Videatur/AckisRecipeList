@@ -141,7 +141,10 @@ do
 		for name in pairs(self.scanned_professions) do
 			if professions[name] == nil then self.scanned_professions[name] = nil end
 		end
-		if changed then self.revision = (self.revision or 0) + 1 end
+		if changed then
+			self.revision = (self.revision or 0) + 1
+			if private.RefreshNPCTooltipProfessions then private.RefreshNPCTooltipProfessions() end
+		end
 		return changed
 	end
 end -- do-block

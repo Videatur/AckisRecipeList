@@ -68,7 +68,19 @@ local function CompletedSteps(guide)
     local progress = addon.db.char.guideProgress
     if not progress then progress = {}; addon.db.char.guideProgress = progress end
     if not progress[guide.id] then progress[guide.id] = {} end
-    return progress[guide.id]
+    local saved = progress[guide.id]
+    if guide.stepProgressMigrations then
+        for previousID, replacements in pairs(guide.stepProgressMigrations) do
+            if saved[previousID] then
+                for _, stepID in ipairs(replacements) do
+                    saved[stepID] = true
+                end
+                -- Consume the old key so a replacement can be unchecked.
+                saved[previousID] = nil
+            end
+        end
+    end
+    return saved
 end
 
 -- Progress counts the active guide's steps, including collapsed chapters;
@@ -102,6 +114,18 @@ end
 -- ----------------------------------------------------------------------------
 -- Called for recipe tabs as well as Guide so their original controls are
 -- restored when leaving the guide-specific layout.
+local function SetUpGuideChoices(dropdown, title, getChoices)
+    dropdown.GetAckisChoices = getChoices
+    dropdown:SetupMenu(function(_, root)
+        local choices = getChoices()
+        if #choices == 0 then return end
+        root:CreateTitle(title)
+        for _, entry in ipairs(choices) do
+            root:CreateRadio(entry.text, entry.isSelected, entry.action, entry.data)
+        end
+    end)
+end
+
 function private.UpdateGuidePresentation(panel)
     local tab = panel.tabs and panel.tabs[addon.db.profile.current_tab]
     local isGuide = tab and tab.kind == "guide" or false
@@ -126,12 +150,11 @@ function private.UpdateGuidePresentation(panel)
         selector.Text:SetJustifyV("MIDDLE")
         selector.Text:SetWordWrap(false)
         selector:SetDefaultText(L["Guide"])
-        selector:SetupMenu(function(_, root)
+        SetUpGuideChoices(selector, L["Select guide"], function()
             -- The selector is reused across professions. Resolve its module
             -- when opening the menu instead of retaining the creation-time one.
             local currentModule = private.CurrentProfession and private.CurrentProfession:Module()
-            if not currentModule or not currentModule.Guides then return end
-            root:CreateTitle(L["Select guide"])
+            if not currentModule or not currentModule.Guides then return {} end
             local function IsSelected(key)
                 local choices = addon.db.char.guideSelections or {}
                 local selected = choices[currentModule:GetName()] or currentModule.GuideOrder[1]
@@ -147,9 +170,17 @@ function private.UpdateGuidePresentation(panel)
                 if _G.ARL_GuidePanel then _G.ARL_GuidePanel:Hide() end
                 panel.list_frame:Update(nil, false)
             end
-            for _,key in ipairs(currentModule.GuideOrder) do
-                root:CreateRadio(currentModule.Guides[key].menuTitle or currentModule.Guides[key].title or key, IsSelected, SelectGuide, key)
+            local choices = {}
+            for _, key in ipairs(currentModule.GuideOrder) do
+                local guide = currentModule.Guides[key]
+                choices[#choices + 1] = {
+                    text = guide.menuTitle or guide.title or key,
+                    data = key,
+                    isSelected = IsSelected,
+                    action = SelectGuide,
+                }
             end
+            return choices
         end)
         panel.guide_selector = selector
     end
@@ -285,6 +316,7 @@ function private.ShowGuideEntryTooltip(entry)
     tip:AddLine(entry.guideStep and L["Click to open this step."] or
         (entry.guideShopping and L["Click to view materials for the selected route."] or L["Click to expand the leveling steps."]), 1, 1, 1, true)
     tip:Show()
+    return tip
 end
 
 -- ----------------------------------------------------------------------------
@@ -340,7 +372,8 @@ function private.GetGuideEntities(acquireType, ids, guide)
             entity = {name=location.name, faction=location.faction, locationName=location.zone, coord_x=location.x, coord_y=location.y}
         end
         if entity and (not entity.faction or entity.faction == "Neutral" or entity.faction == faction) then
-            entities[#entities + 1] = { entity = entity, id = id, mapID = location and location.mapID or MapID(entity.Location) }
+            entities[#entities + 1] = { entity = entity, id = id, acquireType = acquireType,
+                mapID = location and location.mapID or MapID(entity.Location) }
         end
     end
     return RankEntities(entities)
@@ -352,7 +385,7 @@ function private.GetGuideSupplyEntities(guide, itemID)
     local entities = {}
     for _, vendor in ipairs(guide.supplies or {}) do
         if vendor.items[itemID] and (vendor.faction == private.Player.faction or vendor.faction == "Neutral") then
-            entities[#entities + 1] = { id = vendor.id, mapID = vendor.mapID,
+            entities[#entities + 1] = { id = vendor.id, mapID = vendor.mapID, acquireType = private.AcquireTypes.Vendor,
                 entity = { name = vendor.name, locationName = vendor.zone, coord_x = vendor.x, coord_y = vendor.y } }
         end
     end
@@ -515,6 +548,10 @@ end
 
 local function CanRefreshFollowTracker()
     if _G.InCombatLockdown() then return false end
+    -- The native container can update scenario objectives during any layout.
+    -- Pause addon-driven layouts throughout instances, including their entry
+    -- and exit updates where the aura restriction predicate may not be set.
+    if _G.IsInInstance and _G.IsInInstance() then return false end
     local secrets = _G.C_Secrets
     if secrets and secrets.ShouldUnitAurasBeSecret and secrets.ShouldUnitAurasBeSecret("player") then return false end
     return true
@@ -854,7 +891,6 @@ local function CreateGuideFrame()
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
-    table.insert(_G.UISpecialFrames, "ARL_GuidePanel")
     local inset = _G.CreateFrame("Frame", nil, frame, "InsetFrameTemplate")
     inset:SetPoint("TOPLEFT", 8, -62)
     inset:SetPoint("BOTTOMRIGHT", -10, 10)
@@ -906,9 +942,10 @@ local function CreateGuideFrame()
         scrollbar:SetScrollPercentage(range > 0 and math.max(0, math.min(1, offset / range)) or 0)
         syncing = false
     end)
-    local function ScrollWithWheel(_, delta)
+    local function ScrollBy(delta)
         scroll:SetVerticalScroll(math.max(0, math.min(range, scroll:GetVerticalScroll() - delta * 32)))
     end
+    local function ScrollWithWheel(_, delta) ScrollBy(delta) end
     scroll:EnableMouseWheel(true)
     scroll:SetScript("OnMouseWheel", ScrollWithWheel)
     scrollbar:EnableMouseWheel(true)
@@ -929,29 +966,39 @@ local function CreateGuideFrame()
     choice.Text:SetJustifyV("MIDDLE")
     choice.Text:SetWordWrap(false)
     choice:SetDefaultText(L["Select route"])
-    choice:SetupMenu(function(_, root)
+    local function SelectRoute(guide, step, index)
+        -- Ignore a menu selection from a previously displayed step.
+        if not frame:IsShown() or frame.guide ~= guide or frame.step ~= step then return end
+        local selections = frame.selections[guide.id]
+        if index == (selections[step.id] or 1) then return end
+        selections[step.id] = index
+        -- These two steps form one route: keep the fish/oil and mana alternatives together.
+        local paired = guide.id == "forever-alchemy-1-225" and
+            (step.id == "130-150" and "150-165" or step.id == "150-165" and "130-150")
+        if paired then selections[paired] = index end
+        RenderGuide()
+        frame.scroll:SetVerticalScroll(0)
+    end
+    SetUpGuideChoices(choice, L["Select route"], function()
         local guide, step = frame.guide, frame.step
-        if not guide or not step or #step.variants < 2 then return end
+        if not guide or not step or #step.variants < 2 then return {} end
         local selections = frame.selections[guide.id]
         local function IsSelected(index)
             return index == (selections[step.id] or 1)
         end
-        local function SelectRoute(index)
-            -- A menu belongs to the step that opened it, even if the window is reused.
-            if not frame:IsShown() or frame.guide ~= guide or frame.step ~= step or IsSelected(index) then return end
-            selections[step.id] = index
-            -- These two steps form one route: keep the fish/oil and mana alternatives together.
-            local paired = guide.id == "forever-alchemy-1-225" and
-                (step.id == "130-150" and "150-165" or step.id == "150-165" and "130-150")
-            if paired then selections[paired] = index end
-            RenderGuide()
-            frame.scroll:SetVerticalScroll(0)
+        local function ApplyRoute(index)
+            SelectRoute(guide, step, index)
         end
-        root:CreateTitle(L["Select route"])
+        local choices = {}
         for index, variant in ipairs(step.variants) do
-            root:CreateRadio(RouteLabel(variant, step),
-                IsSelected, SelectRoute, index)
+            choices[#choices + 1] = {
+                text = RouteLabel(variant, step),
+                data = index,
+                isSelected = IsSelected,
+                action = ApplyRoute,
+            }
         end
+        return choices
     end)
     frame.choice = choice
     local complete = _G.CreateFrame("CheckButton", nil, frame, "MinimalCheckboxArtTemplate")
@@ -962,9 +1009,8 @@ local function CreateGuideFrame()
     complete.label:SetPoint("LEFT", complete, "RIGHT", 4, 0)
     complete.label:SetText(L["Completed"])
     private.SetTooltipScripts(complete, L["Mark this step as completed to update your guide progress. Uncheck it to undo."], 1)
-    complete:SetScript("OnClick", function(self)
+    function frame:SetStepCompleted(completed)
         if not frame.step then return end
-        local completed = self:GetChecked() and true or false
         CompletedSteps(frame.guide)[frame.step.id] = completed and true or nil
         if completed and IsFollowed(frame) then
             addon.db.char.guideFollow = nil
@@ -983,7 +1029,8 @@ local function CreateGuideFrame()
             if step then private.OpenGuideStep(frame.profession, chapter, step)
             else frame:Hide() end
         end
-    end)
+    end
+    complete:SetScript("OnClick", function(self) frame:SetStepCompleted(self:GetChecked()) end)
     frame.complete = complete
     local follow = _G.CreateFrame("CheckButton", nil, frame, "MinimalCheckboxArtTemplate")
     follow:SetSize(20, 20)
@@ -992,12 +1039,13 @@ local function CreateGuideFrame()
     follow.label = follow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     follow.label:SetPoint("LEFT", follow, "RIGHT", 4, 0)
     follow.label:SetText(L["Follow"])
-    follow:SetScript("OnClick", function()
+    function frame:ToggleFollow()
         if IsFollowed(frame) then addon.db.char.guideFollow = nil
         else SaveFollowedStep(frame) end
         EnsureFollowTracker()
         RenderGuide()
-    end)
+    end
+    follow:SetScript("OnClick", function() frame:ToggleFollow() end)
     frame.follow = follow
     -- Listen for item, bag, zone and skill changes only while the window is open.
     frame:SetScript("OnHide", function(self)
@@ -1023,6 +1071,15 @@ local function CreateGuideFrame()
         end)
     end)
     frame:Hide()
+    private.RegisterEscapePanel(frame)
+    if private.InitializeGamepadGuide then
+        private.InitializeGamepadGuide(frame, ScrollBy, function(direction)
+            local guide, step = frame.guide, frame.step
+            if not step or #step.variants < 2 then return end
+            local index = frame.selections[guide.id][step.id] or 1
+            SelectRoute(guide, step, (index - 1 + direction) % #step.variants + 1)
+        end)
+    end
     return frame
 end
 
@@ -1177,6 +1234,12 @@ local function AddRow(text, options)
         elseif self.entity then
             local entity = self.entity.entity
             if self.entity.mapID and entity.coord_x and entity.coord_y and entity.coord_x > 0 and entity.coord_y > 0 then
+                if private.TrackGuideSource then
+                    local step = frame.step
+                    local selections = frame.selections[frame.guide.id] or {}
+                    local variant = step and (step.variants[selections[step.id] or 1] or step.variants[1])
+                    private.TrackGuideSource(self.entity, frame.guide, step, variant)
+                end
                 -- Source coordinates are percentages; waypoints use 0-1 units.
                 addon:SetWaypoint(self.entity.mapID, entity.coord_x / 100, entity.coord_y / 100, entity.name)
             end

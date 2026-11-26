@@ -625,6 +625,9 @@ L["UI_SCALE_DESC"] = "Ändert die Skalierung der UI. Mögliche Werte sind .5 bis
 L["Ulthir"] = true
 L["Una"] = true
 L["UNIT_MAX_TOOLTIPS_DESC"] = "Maximale Anzahl der in Tooltips angezeigten Rezepte"
+L["Recipe Drops Before Scanning"] = "Rezeptbeute vor dem Scan"
+L["UNIT_UNSCANNED_PROFESSION_DROPS_DESC"] = "Zeigt Rezeptbeute für deine erlernten Berufe auch vor dem Scan an."
+L["UNIT_TOOLTIP_MORE_RECIPES"] = "+%d weitere Rezepte"
 L["UNIT_TOOLTIPS_DESC"] =
 "Schaltet die Anzeige unbekannter Rezepte in den Tooltips der Händler, Lehrer, oder Mobs, die diese bei sich tragen, ein bzw. aus."
 L["UNKNOWN_DESC"] = "Schließt alle Unbekannten Rezepte in den Scan ein."
@@ -853,6 +856,7 @@ L["Mekgineer Thermaplugg"] = "Robogenieur Thermadraht"
 L["Solakar Flamewreath"] = "Solakar Feuerkrone"
 L["Ragnaros"] = "Ragnaros"
 L["RECIPE_TRACKING_REMOVE"] = "Rechtsklick, um diese Bezugsquelle nicht mehr zu verfolgen."
+L["RECIPE_TRACKING_COORDINATES"] = "Linksklick, um die Koordinaten im Chat anzuzeigen."
 L["RECIPE_TRACKING_HEADER"] = "Rezepte"
 
 -- Shared profession-guide UI.
@@ -956,3 +960,8 @@ L["Gather ore"] = "Erz sammeln"
 L["Iron / Gold"] = "Eisen / Gold"
 L["Mithril / Truesilver"] = "Mithril / Echtsilber"
 L["Thorium veins"] = "Thoriumvorkommen"
+
+L["Crafted item"] = "Hergestellter Gegenstand"
+L["Link in chat"] = "Im Chat verlinken"
+L["Open chat to insert the recipe link."] = "Öffne den Chat, um den Rezeptlink einzufügen."
+L["Filter categories"] = "Filterkategorien"

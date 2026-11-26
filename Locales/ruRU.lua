@@ -629,6 +629,9 @@ L["UI_SCALE_DESC"] = "Изменение масштаба интерфейса. 
 L["Ulthir"] = "Ультир"
 L["Una"] = "Уна"
 L["UNIT_MAX_TOOLTIPS_DESC"] = "Максимальное количество рецептов, показываемых в подсказке."
+L["Recipe Drops Before Scanning"] = "Рецепты из добычи до сканирования"
+L["UNIT_UNSCANNED_PROFESSION_DROPS_DESC"] = "Показывает рецепты из добычи для изученных профессий ещё до их сканирования."
+L["UNIT_TOOLTIP_MORE_RECIPES"] = "Ещё рецептов: %d"
 L["UNIT_TOOLTIPS_DESC"] =
 "Показ неизвестных рецептов в подсказках у торговцев, учителей, или существ, у которых эти рецепты имеются."
 L["UNKNOWN_DESC"] = "Включение в сканирование всех неизвестных рецептов."
@@ -853,6 +856,7 @@ L["Mekgineer Thermaplugg"] = "Анжинер Термоштепсель"
 L["Solakar Flamewreath"] = "Солакарский огнечервь"
 L["Ragnaros"] = "Рагнарос"
 L["RECIPE_TRACKING_REMOVE"] = "Щёлкните правой кнопкой мыши, чтобы прекратить отслеживание этого источника."
+L["RECIPE_TRACKING_COORDINATES"] = "Щёлкните левой кнопкой мыши, чтобы показать координаты в чате."
 L["RECIPE_TRACKING_HEADER"] = "Рецепты"
 
 -- Shared profession-guide UI.
@@ -956,3 +960,8 @@ L["Gather ore"] = "Собирать руду"
 L["Iron / Gold"] = "Железо / Золото"
 L["Mithril / Truesilver"] = "Мифрил / Истинное серебро"
 L["Thorium veins"] = "Ториевые жилы"
+
+L["Crafted item"] = "Создаваемый предмет"
+L["Link in chat"] = "Ссылка в чат"
+L["Open chat to insert the recipe link."] = "Откройте чат, чтобы вставить ссылку на рецепт."
+L["Filter categories"] = "Категории фильтров"

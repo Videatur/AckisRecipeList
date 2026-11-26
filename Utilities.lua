@@ -13,6 +13,23 @@ function private.CreateFrameWithBackdrop(frameType, name, parent, template)
     return _G.CreateFrame(frameType, name, parent, template or "BackdropTemplate")
 end
 
+function private.RegisterEscapePanel(panel)
+    -- Keep keyboard handling on our window. RegisterGameMenuEscHandler sorts
+    -- a shared list that also contains Blizzard's protected casting handler.
+    panel:SetScript("OnKeyDown", function(self, key)
+        if private.addonEnabled == false or _G.InCombatLockdown() or key ~= "ESCAPE" then return end
+        self:SetPropagateKeyboardInput(false)
+        self:Hide()
+    end)
+    panel:EnableKeyboard(false)
+    panel:HookScript("OnShow", function(self)
+        if private.addonEnabled == false or _G.InCombatLockdown() then return end
+        self:SetPropagateKeyboardInput(true)
+        self:EnableKeyboard(true)
+    end)
+    panel:HookScript("OnHide", function(self) self:EnableKeyboard(false) end)
+end
+
 -- Use Edit Mode's native dialog background without changing the shared popup border.
 function private.ShowPopupBackground(popup)
     if popup.ackisPopupBackground then return end

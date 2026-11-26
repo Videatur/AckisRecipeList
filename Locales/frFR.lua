@@ -623,6 +623,9 @@ L["UI_SCALE_DESC"] = "Change l'échelle de l'IU. La portée va de .5 à 1.5 (1 p
 L["Ulthir"] = true
 L["Una"] = true
 L["UNIT_MAX_TOOLTIPS_DESC"] = "Nombre maximum de recettes à afficher dans les bulles d'aide."
+L["Recipe Drops Before Scanning"] = "Recettes de butin avant l’analyse"
+L["UNIT_UNSCANNED_PROFESSION_DROPS_DESC"] = "Affiche les recettes de butin de vos métiers appris, même avant leur analyse."
+L["UNIT_TOOLTIP_MORE_RECIPES"] = "+%d recettes supplémentaires"
 L["UNIT_TOOLTIPS_DESC"] = "Affiche ou non les recettes manquantes dans les bulles d'aide des marchands, des entraîneurs ou des monstres."
 L["UNKNOWN_DESC"] = "Intègre ou non toutes les recettes inconnues dans l'analyse."
 L["Using Filters"] = "Utiliser les filtres"
@@ -844,6 +847,7 @@ L["Mekgineer Thermaplugg"] = "Mekgénieur Thermojoncteur"
 L["Solakar Flamewreath"] = "Solakar Voluteflamme"
 L["Ragnaros"] = "Ragnaros"
 L["RECIPE_TRACKING_REMOVE"] = "Clic droit pour arrêter le suivi de cette source."
+L["RECIPE_TRACKING_COORDINATES"] = "Clic gauche pour afficher les coordonnées dans le chat."
 L["RECIPE_TRACKING_HEADER"] = "Recettes"
 
 -- Shared profession-guide UI.
@@ -947,3 +951,8 @@ L["Gather ore"] = "Récolter du minerai"
 L["Iron / Gold"] = "Fer / Or"
 L["Mithril / Truesilver"] = "Mithril / Vrai-argent"
 L["Thorium veins"] = "Filons de thorium"
+
+L["Crafted item"] = "Objet fabriqué"
+L["Link in chat"] = "Lier dans le chat"
+L["Open chat to insert the recipe link."] = "Ouvrez le chat pour y insérer le lien de la recette."
+L["Filter categories"] = "Catégories de filtres"

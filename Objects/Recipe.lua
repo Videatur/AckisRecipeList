@@ -1,12 +1,12 @@
 --[[
     Ackis Recipe List - Recipe Object
-    
+
     Represents a craftable recipe with:
     - Acquisition sources (vendors, trainers, mobs, quests, etc.)
     - Filter flags for display logic
     - Skill levels and quality information
     - State tracking (known, visible, ignored)
-    
+
     Copyright (c) 2009 - 2012 Ackis <John Pasula>
     All rights reserved by the original author Ackis.
 ]]
@@ -947,11 +947,6 @@ BLACKLISTED_RECIPE_IDS = {
 	[156589] = true, 	[156590] = true, 	[156592] = true, 	[156593] = true,
 	[168042] = true,
 
-	-- Shadowlands Alchemy
-	[338190] = true,	[338191] = true,	[338192] = true,	[338194] = true,
-	[338195] = true,	[338196] = true,	[338198] = true,	[338199] = true,
-	[338200] = true,	[338202] = true,	[338203] = true,	[338204] = true,
-
 	-- ------------------------------------------------------------------------------------
 	---BLACKSMITHING
 	-- ------------------------------------------------------------------------------------
@@ -978,34 +973,11 @@ BLACKLISTED_RECIPE_IDS = {
 	[153668] = true,	[171718] = true,	[184181] = true,	[184182] = true,
 	[184183] = true,	[184184] = true,	[184185] = true,
 
-	-- Legion Quests items you don't actually learn
-	[183278] = true,	[183279] = true,	[183280] = true,	[183281] = true,
-	[183283] = true,	[183562] = true,	[184214] = true,	[184215] = true,
-	[184216] = true,	[184217] = true,	[184218] = true,	[184219] = true,
-	[184220] = true,	[184308] = true,	[184309] = true,	[184310] = true,
-	[184312] = true,	[184313] = true,	[184314] = true,	[184315] = true,
-	[184336] = true,	[184337] = true,	[184338] = true,	[184339] = true,
-	[184340] = true,	[184341] = true,	[184342] = true,	[184343] = true,
-	[184344] = true,	[184345] = true,	[184403] = true,	[184404] = true,
-	[184405] = true,	[184407] = true,	[184408] = true,	[248864] = true,
-	[248867] = true,	[248869] = true,	[248870] = true,
-
-	-- Shadowlands
-	[337374] = true,	[337426] = true,	[337427] = true,	[337619] = true,
-	[337621] = true,	[337626] = true,	[338088] = true,	[338090] = true,
-	[338091] = true,	[338094] = true,	[338095] = true,	[338096] = true,
-	[338097] = true,
-
 	-- ------------------------------------------------------------------------------------
 	----COOKING
 	-- ------------------------------------------------------------------------------------
 	[145167] = true,	[145170] = true,	[145197] = true,	[169693] = true,
 	[169696] = true,	[169699] = true,
-
-	--Shadowlands
-	[338100] = true,	[338101] = true,	[338102] = true,	[338105] = true,
-	[338106] = true,	[338107] = true,	[338110] = true,	[338113] = true,
-	[338115] = true,	[338116] = true,	[338117] = true,
 
 	-- ------------------------------------------------------------------------------------
 	----ENCHANTING
@@ -1019,9 +991,6 @@ BLACKLISTED_RECIPE_IDS = {
 	[175072] = true,	[175074] = true,	[175076] = true,	[175078] = true,
 	[175085] = true,	[175086] = true,	[177355] = true,	[181870] = true,
 	[284415] = true,
-	-- Shadowlands
-	[338121] = true,	[338123] = true,	[338125] = true,	[346026] = true,
-
 
 	-- ------------------------------------------------------------------------------------
 	----ENGINEERING
@@ -1029,10 +998,6 @@ BLACKLISTED_RECIPE_IDS = {
 	[12900] = true,		[30342] = true,		[30343] = true,		[43676] = true,
 	[169077] = true,	[177364] = true,	[178242] = true,
 	[181422]= true,		[181423] = true,
-	-- Shadowlands
-	[338119] = true, 	[338210] = true,	[338212] = true,	[338213] = true,
-	[338214] = true,	[338216] = true,	[338217] = true,	[338218] = true,
-	[338219] = true,	[338220] = true, 	[338222] = true,	[338223] = true,
 
 
 	-- ------------------------------------------------------------------------------------
@@ -1051,15 +1016,11 @@ BLACKLISTED_RECIPE_IDS = {
 	[25614] = true, 	[26918] = true, 	[26920] = true, 	[32810] = true,
 	[73233] = true, 	[73259] = true, 	[170832] = true,	[248937] = true,
 	[248938] = true,	[248939] = true,	[248940] = true,
-	-- Shadowlands
-	[338238] = true,	[338239] = true,	[338240] = true,	[338241] = true,
-	[338242] = true,	[338243] = true,	[338244] = true,	[338245] = true,
-	[338246] = true,	[338247] = true,	[338248] = true,	[338249] = true,
 
 	-- --------------------------------------------------------------------------------------
 	---LEATHERWORKING
 	-- --------------------------------------------------------------------------------------
-	[10550] = true,		[19106] = true,		[171713] = true,	[173416] = true,
+	[19106] = true,		[171713] = true,	[173416] = true,
 	[176392] = true,	[176397] = true,	[176399] = true,	[176401] = true,
 	[176402] = true,	[176404] = true,	[176405] = true,	[176408] = true,
 	[176409] = true,	[176411] = true,	[176412] = true,	[176413] = true,
@@ -1078,9 +1039,9 @@ BLACKLISTED_RECIPE_IDS = {
 	-- --------------------------------------------------------------------------------------
 	---TAILORING
 	-- --------------------------------------------------------------------------------------
-	[7636] = true,		[8778] = true,		[12062] = true,		[12062] = true,
-	[12063] = true,		[12068] = true,		[12083] = true,		[12087] = true,
-	[12090] = true,		[36665] = true, 	[36667] = true, 	[36668] = true,
+	[7636] = true,		[8778] = true,
+	[12068] = true,
+	[36665] = true, 	[36667] = true, 	[36668] = true,
 	[36669] = true,		[36670] = true,		[36672] = true,
 	[31368] = true,		[31461] = true, -- Says exists but isn't sold by vendor it says it is
 	[168851] = true,	[169669] = true,	[173415] = true,	[176313] = true,
@@ -1088,11 +1049,6 @@ BLACKLISTED_RECIPE_IDS = {
 	[186763] = true,	[186764] = true,	[186799] = true,	[186801] = true,
 	[186803] = true,	[187058] = true,	[187059] = true,	[187060] = true,
 	[187064] = true,	[187065] = true,	[187066] = true,
-
-	--Shadowlands
-	[338267] = true,	[338269] = true,	[338270] = true,	[338271] = true,
-	[338272] = true,	[338273] = true,	[338275] = true,	[338276] = true,
-	[338277] = true,	[338278] = true,	[338279] = true,	[338280] = true,
 }
 
 -- ============================================================================

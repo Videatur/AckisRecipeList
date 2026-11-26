@@ -1,10 +1,10 @@
 ## Interface: 16001
 ## Title: Ackis Recipe List Classic
-## Version: 12.0.0
+## Version: 12.1.6
 ## Author: Videatur
 ## SavedVariables: ARLDB2
 ## DefaultState: Enabled
-## OptionalDeps: HereBeDragons, TomTom
+## OptionalDeps: HereBeDragons, TomTom, Skillet
 ## X-Localizations: enUS, frFR, zhCN, deDE, esES, ruRU
 ## X-Credits: Original authors: Ackis, Torhal, Ressy; Zhinjio, FGWarmonger, Kagaro, Speeddymon, Xinhuan, Aesir, BWMerlin, everyone who translated stuff and more!
 ## IconTexture: Interface\Icons\INV_Misc_Book_11
@@ -15,7 +15,6 @@
 ## Category-esES: Profesiones
 ## Category-esMX: Profesiones
 ## Category-frFR: Métiers
-## Category-itIT: Professioni
 ## Category-koKR: 전문 기술
 ## Category-ruRU: Профессии
 ## Category-zhCN: 专业
@@ -26,7 +25,6 @@
 ## Notes: Ackis Recipe List Classic is the revival of the legendary AddOn that scans your profession skills and provides information on how to obtain recipes. It works for all professions.
 ## Notes-frFR: Ackis Recipe List Classic est la résurrection du légendaire add-on qui analyse vos métiers et fournit des informations sur la façon d’obtenir les recettes. Il fonctionne pour toutes les professions.
 ## Notes-deDE: Ackis Recipe List Classic ist die Neuauflage des legendären AddOns, das deine Berufe durchsucht und Informationen liefert, wie man Rezepte erhält. Es funktioniert für alle Berufe.
-## Notes-itIT: Ackis Recipe List Classic è la riproposizione del leggendario AddOn che scansiona le tue competenze nelle professioni e fornisce informazioni su come ottenere ricette. Funziona per tutte le professioni.
 ## Notes-ruRU: Ackis Recipe List Classic — возрождение легендарного аддона, который сканирует ваши профессии и предоставляет информацию о том, как получить рецепты. Работает для всех профессий.
 ## Notes-zhCN: Ackis Recipe List Classic 是传奇插件的重制版，可扫描你的专业技能并提供获取配方的相关信息。适用于所有专业。
 ## Notes-esES: Ackis Recipe List Classic es la reedición del legendario addon que analiza tus profesiones y proporciona información sobre cómo obtener recetas. Funciona para todas las profesiones.

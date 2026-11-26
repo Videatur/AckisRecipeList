@@ -1,4 +1,4 @@
--- Ackis Forever waypoints: TomTom integration and standalone HBD pins.
+-- Ackis Forever waypoints: TomTom integration and standalone map pins.
 local _, private = ...
 local LibStub = _G.LibStub
 local addon = LibStub("AceAddon-3.0"):GetAddon(private.addon_name)
@@ -20,6 +20,81 @@ end
 
 local function ValidCoordinates(x, y)
     return Finite(x) and Finite(y) and x >= 0 and x <= 1 and y >= 0 and y <= 1
+end
+
+-- Own the icons on the canvas without acquiring or releasing MapCanvas pins.
+-- HBD is still used for coordinates and minimap icons.
+local worldPins, worldPinUpdater = {}, nil
+local lastMapID, lastWidth, lastHeight, lastScale
+local lastOpenMap, lastFrameLevel
+
+local function WorldPinPosition(position, mapID, openMap)
+    if openMap then
+        local u, v = openMap.WorldFromMap(position.mapID, position.x, position.y)
+        if Finite(u) and Finite(v) then
+            local x, y = openMap.MapFromWorld(mapID, u, v)
+            -- A stitched view can show points outside the host map's rectangle.
+            if Finite(x) and Finite(y) then return x, y end
+        end
+    end
+    if mapID == position.mapID then return position.x, position.y end
+end
+
+local function UpdateWorldPins()
+    local map = _G.WorldMapFrame
+    local canvas = map:GetCanvas()
+    local mapID, width, height = map:GetMapID(), canvas:GetSize()
+    local scale = map:GetCanvasScale()
+    local openMap = _G.OpenMapAPI
+    if not (openMap and openMap.IsStitched and openMap.WorldFromMap and openMap.MapFromWorld and openMap.IsStitched()) then
+        openMap = nil
+    end
+    local frameLevel = canvas:GetFrameLevel() + 20
+    local artTop = openMap and openMap.ArtTopLevel and openMap.ArtTopLevel()
+    if Finite(artTop) then frameLevel = math.max(frameLevel, artTop + 1) end
+    if mapID == lastMapID and width == lastWidth and height == lastHeight and scale == lastScale
+        and openMap == lastOpenMap and frameLevel == lastFrameLevel then return end
+    lastMapID, lastWidth, lastHeight, lastScale = mapID, width, height, scale
+    lastOpenMap, lastFrameLevel = openMap, frameLevel
+    local ready = Finite(width) and width > 0 and Finite(height) and height > 0 and Finite(scale) and scale > 0
+    for pin, position in pairs(worldPins) do
+        local x, y
+        if ready then x, y = WorldPinPosition(position, mapID, openMap) end
+        if x then
+            pin:SetFrameLevel(frameLevel)
+            pin:SetScale(1 / scale)
+            pin:ClearAllPoints()
+            -- Anchor offsets are in the pin's units, so undo its local scale.
+            pin:SetPoint("CENTER", canvas, "TOPLEFT", x * width * scale, -y * height * scale)
+        end
+        pin:SetShown(x ~= nil)
+    end
+end
+
+local function AddWorldPin(pin, mapID, x, y)
+    local map = _G.WorldMapFrame
+    local canvas = map and map:GetCanvas()
+    if not canvas then return false end
+    if not worldPinUpdater then
+        worldPinUpdater = _G.CreateFrame("Frame", nil, canvas)
+        worldPinUpdater:Hide()
+        worldPinUpdater:SetScript("OnUpdate", UpdateWorldPins)
+    end
+    pin:Hide()
+    pin:SetParent(canvas)
+    worldPins[pin] = {mapID = mapID, x = x, y = y}
+    lastMapID = nil
+    worldPinUpdater:Show()
+    if worldPinUpdater:IsVisible() then UpdateWorldPins() end
+    return true
+end
+
+local function RemoveWorldPin(pin)
+    if not worldPins[pin] then return end
+    worldPins[pin] = nil
+    pin:Hide()
+    pin:ClearAllPoints()
+    if not next(worldPins) then worldPinUpdater:Hide() end
 end
 
 -- Coordinates belong to this map only. A parent map is not a safe substitute.
@@ -63,13 +138,14 @@ local function AcquirePin(title)
         pin:SetScript("OnClick", function(self) addon:RemoveWaypoint(self.waypoint) end)
     end
     pin.title = title or ""
-    pin:Hide() -- HBD controls visibility after registration.
+    pin:SetParent(_G.Minimap)
+    pin:SetScale(1)
+    pin:Hide()
     return pin
 end
 
-local function ReleasePin(pin)
-    HBDPins:RemoveMinimapIcon(addon, pin)
-    HBDPins:RemoveWorldMapIcon(addon, pin)
+local function ReleasePin(pin, world)
+    if world then RemoveWorldPin(pin) else HBDPins:RemoveMinimapIcon(addon, pin) end
     if _G.GameTooltip:IsOwned(pin) then _G.GameTooltip:Hide() end
     pin:Hide()
     pin:ClearAllPoints()
@@ -84,6 +160,7 @@ function addon:RemoveWaypoint(waypoint)
     elseif waypoint.pin then
         ReleasePin(waypoint.pin)
     end
+    if waypoint.worldPin then ReleasePin(waypoint.worldPin, true) end
     activeWaypoints[waypoint] = nil
     waypointIndex[waypoint.key] = nil
 end
@@ -136,15 +213,23 @@ function addon:SetWaypoint(mapID, x, y, title, automatic)
         if uid then waypoint.tomtom_uid, waypoint.backend = uid, TomTom end
     end
     if not waypoint.tomtom_uid then
-        local pin = AcquirePin(title)
-        local minimapAdded, worldAdded = false, false
-        if profile.minimap then minimapAdded = HBDPins:AddMinimapIconMap(addon, pin, mapID, x, y, true, true) end
-        if profile.worldmap then worldAdded = HBDPins:AddWorldMapIconMap(addon, pin, mapID, x, y) end
-        if not minimapAdded and not worldAdded then
-            ReleasePin(pin)
-            return false
+        if profile.minimap then
+            local pin = AcquirePin(title)
+            if HBDPins:AddMinimapIconMap(addon, pin, mapID, x, y, true, true) then
+                waypoint.pin, pin.waypoint = pin, waypoint
+            else
+                ReleasePin(pin)
+            end
         end
-        waypoint.pin, pin.waypoint = pin, waypoint
+        if profile.worldmap then
+            local pin = AcquirePin(title)
+            if AddWorldPin(pin, mapID, x, y) then
+                waypoint.worldPin, pin.waypoint = pin, waypoint
+            else
+                ReleasePin(pin, true)
+            end
+        end
+        if not waypoint.pin and not waypoint.worldPin then return false end
     end
     activeWaypoints[waypoint], waypointIndex[key] = true, waypoint
     return true
@@ -161,7 +246,7 @@ function addon:RefreshWaypointPreferences()
     for _, waypoint in ipairs(manual) do
         if private.addonEnabled ~= false and not profile.minimap and not profile.worldmap then
             -- Keep manual destinations dormant while both map displays are off.
-            waypoint.tomtom_uid, waypoint.backend, waypoint.pin, waypoint.automatic = nil, nil, nil, nil
+            waypoint.tomtom_uid, waypoint.backend, waypoint.pin, waypoint.worldPin, waypoint.automatic = nil, nil, nil, nil, nil
             activeWaypoints[waypoint], waypointIndex[waypoint.key] = true, waypoint
         else
             self:SetWaypoint(waypoint.mapID, waypoint.x, waypoint.y, waypoint.title)
@@ -313,11 +398,10 @@ end)
 
 -- Saved recipe destinations in Forever's Map & Quest Log.
 do
-    local pins = HBDPins
-    local pinOwner = {}
     local pinFrames, rows, zoneLabels = {}, {}, {}
     local section, hooked, collapsed
-    local pinsActive, refreshPending, hidePending = false, false, false
+    local pinsActive, hidePending = false, false
+    local questLogAppearance
     local events = _G.CreateFrame("Frame")
     local Refresh
     local SCROLL_ICON = [[Interface\Buttons\UI-GuildButton-PublicNote-Up]]
@@ -328,20 +412,14 @@ do
         return not (secrets and secrets.ShouldUnitAurasBeSecret and secrets.ShouldUnitAurasBeSecret("player"))
     end
 
-    local function RefreshNativeQuestLog()
-        if hooked and CanRefreshTracking() then
-            _G.securecallfunction(_G.QuestLogQuests_Update)
-        end
-    end
-
     local function Destinations()
         if not addon.db or not addon.db.char then return nil end
         addon.db.char.recipeDestinations = addon.db.char.recipeDestinations or {}
         return addon.db.char.recipeDestinations
     end
 
-    local function ShowDestination(destination)
-        if CanRefreshTracking() then _G.securecallfunction(_G.OpenQuestLog, destination.mapID) end
+    local function DestinationCoordinates(destination)
+        return ("%s (%.1f, %.1f)"):format(destination.zoneName, destination.x * 100, destination.y * 100)
     end
 
     local function RemoveDestination(key)
@@ -355,8 +433,8 @@ do
         tip:SetOwner(owner, "ANCHOR_RIGHT")
         tip:SetText(destination.recipeName, 1, .82, 0)
         tip:AddLine(destination.sourceName, 1, 1, 1)
-        tip:AddLine(("%s (%.1f, %.1f)"):format(destination.zoneName, destination.x * 100, destination.y * 100), 1, 1, 1)
-        tip:AddLine(_G.CLICK_TO_VIEW or "Click to view", .7, .7, .7)
+        tip:AddLine(DestinationCoordinates(destination), 1, 1, 1)
+        tip:AddLine(L["RECIPE_TRACKING_COORDINATES"], .7, .7, .7)
         tip:AddLine(L["RECIPE_TRACKING_REMOVE"], .7, .7, .7)
         tip:Show()
     end
@@ -365,15 +443,16 @@ do
         if button == "RightButton" then
             _G.GameTooltip:Hide()
             RemoveDestination(self.destination.key)
-        else
-            ShowDestination(self.destination)
+        elseif button == "LeftButton" then
+            -- Report the source without changing Blizzard's map selection.
+            local destination = self.destination
+            addon:Print(("%s — %s"):format(destination.sourceName, DestinationCoordinates(destination)))
         end
     end
 
     local function ClearPins()
         if not pinsActive then return end
-        pins:RemoveAllWorldMapIcons(pinOwner)
-        for _, pin in ipairs(pinFrames) do pin:Hide() end
+        for _, pin in ipairs(pinFrames) do RemoveWorldPin(pin) end
         pinsActive = false
     end
 
@@ -395,8 +474,7 @@ do
                 pinFrames[index] = pin
             end
             pin.destination = destination
-            pins:AddWorldMapIconMap(pinOwner, pin, destination.mapID, destination.x, destination.y)
-            pinsActive = true
+            if AddWorldPin(pin, destination.mapID, destination.x, destination.y) then pinsActive = true end
         end
     end
 
@@ -426,26 +504,46 @@ do
     end
 
     local function Render(destinations)
-        -- A post-hook stays installed once used. Empty/disabled/unsafe calls
-        -- must return before reading or modifying the native quest layout.
-        if #destinations == 0 or private.addonEnabled == false then
-            if section and section:IsShown() then section:Hide() end
+        local show = #destinations > 0 and private.addonEnabled ~= false
+        if not show and not questLogAppearance and not (section and section:IsShown()) then return end
+        if not CanRefreshTracking() then
+            events:RegisterEvent("PLAYER_REGEN_ENABLED")
             return
         end
-        if not CanRefreshTracking() then
-            refreshPending = true
-            events:RegisterEvent("PLAYER_REGEN_ENABLED")
+        if not show then
+            section:Hide()
+            local scroll = _G.QuestScrollFrame
+            if questLogAppearance then
+                scroll.EmptyText:SetShown(questLogAppearance.empty)
+                scroll.NoSearchResultsText:SetShown(questLogAppearance.noResults)
+                if questLogAppearance.atlas then
+                    scroll.Background:SetAtlas(questLogAppearance.atlas, true)
+                    _G.securecallfunction(scroll.ResizeBackground, scroll)
+                end
+                questLogAppearance = nil
+            end
+            _G.securecallfunction(scroll.Contents.Layout, scroll.Contents)
             return
         end
         local contents = EnsureSection()
         if not contents then return end
         for _, row in ipairs(rows) do row:Hide() end
         for _, label in ipairs(zoneLabels) do label:Hide() end
-        section:SetShown(#destinations > 0 and private.addonEnabled ~= false)
-        _G.QuestScrollFrame.EmptyText:Hide()
-        _G.QuestScrollFrame.NoSearchResultsText:Hide()
-        _G.QuestScrollFrame.Background:SetAtlas("QuestLog-main-background", true)
-        _G.securecallfunction(_G.QuestScrollFrame.ResizeBackground, _G.QuestScrollFrame)
+        section:Show()
+        local scroll = _G.QuestScrollFrame
+        if not questLogAppearance then
+            questLogAppearance = {
+                empty = scroll.EmptyText:IsShown(),
+                noResults = scroll.NoSearchResultsText:IsShown(),
+                atlas = scroll.Background:GetAtlas(),
+            }
+        end
+        scroll.EmptyText:Hide()
+        scroll.NoSearchResultsText:Hide()
+        if scroll.Background:GetAtlas() == "QuestLog-empty-quest-background" then
+            scroll.Background:SetAtlas("QuestLog-main-background", true)
+            _G.securecallfunction(scroll.ResizeBackground, scroll)
+        end
         _G.ListHeaderMixin.UpdateCollapsedState(section.header, not not collapsed)
         local offset, zoneIndex, rowIndex, lastMap = 26, 0, 0
         local search = _G.QuestScrollFrame.SearchBox and _G.QuestScrollFrame.SearchBox:GetText() or ""
@@ -511,17 +609,16 @@ do
     Refresh = function()
         local saved = Destinations()
         if not saved then return end
-        if not next(saved) and not pinsActive and not (section and section:IsShown()) then return end
+        if not next(saved) and not pinsActive and not questLogAppearance and not (section and section:IsShown()) then return end
         if not CanRefreshTracking() then
-            refreshPending = true
             events:RegisterEvent("PLAYER_REGEN_ENABLED")
             return
         end
-        refreshPending = false
         events:UnregisterEvent("PLAYER_REGEN_ENABLED")
         local destinations = {}
         for key, destination in pairs(saved) do
-            local known = _G.C_SpellBook and _G.C_SpellBook.IsSpellKnown(destination.spellID, _G.Enum.SpellBookSpellBank.Player)
+            local known = not destination.guideSource and destination.spellID and _G.C_SpellBook
+                and _G.C_SpellBook.IsSpellKnown(destination.spellID, _G.Enum.SpellBookSpellBank.Player)
             if known then
                 saved[key] = nil
             else
@@ -537,12 +634,52 @@ do
         if private.addonEnabled == false then ClearPins(); return end
         if #destinations > 0 then RefreshPins(destinations) else ClearPins() end
         if #destinations > 0 and not hooked and _G.QuestLogQuests_Update and _G.QuestScrollFrame then
-            _G.hooksecurefunc("QuestLogQuests_Update", function() Render(private.recipeTrackingDestinations or {}) end)
-            -- The hook must read the latest saved destinations, not a captured snapshot.
+            _G.hooksecurefunc("QuestLogQuests_Update", function()
+                -- Blizzard has just rebuilt its own appearance.
+                questLogAppearance = nil
+                Render(private.recipeTrackingDestinations or {})
+            end)
             hooked = true
         end
         private.recipeTrackingDestinations = destinations
-        if hooked then RefreshNativeQuestLog() else Render(destinations) end
+        -- Destination changes only need our section. A full quest-log update
+        -- would recycle Blizzard's quest buttons from addon execution.
+        Render(destinations)
+    end
+
+    local function SaveDestination(saved, key, spellID, recipeName, acquireType, entity, mapID, x, y, guideSource)
+        if not Finite(mapID) or mapID <= 0 or mapID % 1 ~= 0
+            or not ValidCoordinates(x, y) or x <= 0 or y <= 0 then return false end
+        local info = _G.C_Map.GetMapInfo(mapID)
+        if guideSource and not info then return false end
+        saved[key] = {
+            key = key, spellID = spellID, mapID = mapID, x = x, y = y,
+            recipeName = recipeName, guideSource = guideSource,
+            sourceName = acquireType:Name() .. ": " .. (entity.name or UNKNOWN),
+            zoneName = (info and info.name) or entity.locationName or (entity.Location and entity.Location:LocalizedName()) or UNKNOWN,
+        }
+        return true
+    end
+
+    -- Guide locations can override the NPC registry or describe suppliers and
+    -- rank trainers that are not recipe acquisition sources. Save their reviewed
+    -- coordinates directly, using the same Quest Log renderer and pin owner.
+    function private.TrackGuideSource(candidate, guide, step, variant)
+        if private.addonEnabled == false then return end
+        local acquireType = candidate.acquireType
+        if acquireType ~= private.AcquireTypes.Vendor and acquireType ~= private.AcquireTypes.Trainer then return end
+        local entity = candidate.entity
+        if not Finite(entity.coord_x) or not Finite(entity.coord_y) then return end
+        local saved = Destinations()
+        if not saved then return end
+        local spellID = variant and variant.spellID
+        local recipe = spellID and private.recipe_list[spellID]
+        local title = recipe and recipe:LocalizedName() or (variant and variant.title)
+            or (spellID and private.GetSpellName(spellID)) or guide.title or UNKNOWN
+        local key = ("guide:%s:%s:%s:%s:%s"):format(guide.id, step and step.id or "shopping",
+            spellID or "", acquireType:ID(), candidate.id)
+        if SaveDestination(saved, key, spellID, title, acquireType, entity, candidate.mapID,
+            entity.coord_x / 100, entity.coord_y / 100, true) then Refresh() end
     end
 
     function private.TrackRecipeSources(records, position)
@@ -553,13 +690,8 @@ do
                 local mapID, x, y = position(record.entity)
                 if mapID and x and y and x > 0 and y > 0 and x <= 1 and y <= 1 then
                     local key = ("%d:%d:%d"):format(record.recipe:SpellID(), record.acquireType:ID(), record.sourceID)
-                    local info = _G.C_Map.GetMapInfo(mapID)
-                    saved[key] = {
-                        key = key, spellID = record.recipe:SpellID(), mapID = mapID, x = x, y = y,
-                        recipeName = record.recipe:LocalizedName(),
-                        sourceName = record.acquireType:Name() .. ": " .. record.entity.name,
-                        zoneName = info and info.name or record.entity.Location:LocalizedName(),
-                    }
+                    SaveDestination(saved, key, record.recipe:SpellID(), record.recipe:LocalizedName(),
+                        record.acquireType, record.entity, mapID, x, y)
                 end
             end
         end
@@ -569,18 +701,14 @@ do
     private.RefreshRecipeTracking = Refresh
     function private.HideRecipeTracking()
         if not CanRefreshTracking() then
-            if section then section:Hide() end
-            if pinsActive then
+            if pinsActive or questLogAppearance or (section and section:IsShown()) then
                 hidePending = true
                 events:RegisterEvent("PLAYER_REGEN_ENABLED")
             end
             return
         end
         ClearPins()
-        if section and section:IsShown() then
-            section:Hide()
-            RefreshNativeQuestLog()
-        end
+        Render({})
     end
 
     events:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -591,6 +719,8 @@ do
         if event == "PLAYER_REGEN_ENABLED" and CanRefreshTracking() and hidePending then
             hidePending = false
             ClearPins()
+            Render({})
+            events:UnregisterEvent("PLAYER_REGEN_ENABLED")
         end
         if private.addonEnabled == false then return end
         if event ~= "ADDON_LOADED" or name == "Blizzard_WorldMap" then Refresh() end

@@ -237,6 +237,9 @@ local REPUTATIONS = {
 	{ id = 2758, label = "NIGHTCLAW_DRUIDS" },
 	{ id = 2787, label = "EARTHEN_RING", faction = "Horde" },
 	{ id = 2765, label = "GUARDIANS_OF_HYJAL", fallback = "Guardians of Hyjal" },
+	{ id = 92, label = "GELKIS_CLAN_CENTAUR", fallback = "Gelkis Clan Centaur" },
+	{ id = 93, label = "MAGRAM_CLAN_CENTAUR", fallback = "Magram Clan Centaur" },
+	{ id = 2747, label = "BARKSKIN_BURROW", fallback = "Barkskin Burrow" },
 }
 
 -- Player-faction affiliation, separate from reputation IDs and standing levels.
